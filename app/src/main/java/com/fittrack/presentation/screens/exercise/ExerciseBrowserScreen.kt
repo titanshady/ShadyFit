@@ -45,18 +45,21 @@ fun ExerciseBrowserScreen(
     val selectedExercise by exerciseVm.selectedExercise.collectAsState()
     val showFavoritesOnly by exerciseVm.showFavoritesOnly.collectAsState()
     val favoriteIds by exerciseVm.favoriteIds.collectAsState()
+    val isDownloadingImage by exerciseVm.isDownloadingImage.collectAsState()
 
     selectedExercise?.let { exercise ->
         ExerciseDetailSheet(
             exercise = exercise,
             isFavorite = favoriteIds.contains(exercise.id),
+            isDownloadingImage = isDownloadingImage,
             onToggleFavorite = { exerciseVm.toggleFavorite(exercise) },
             onDismiss = { exerciseVm.clearSelection() },
             onAdd = {
                 workoutVm.addExercise(exercise)
                 exerciseVm.clearSelection()
                 onExerciseSelected()
-            }
+            },
+            onSheetOpened = { exerciseVm.downloadExerciseImageIfNeeded(exercise.id) }
         )
     }
 
@@ -218,7 +221,7 @@ private fun ExerciseListItem(
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            // GIF thumbnail
+            // GIF thumbnail (or icon if not yet downloaded)
             if (exercise.gifUrl.isNotBlank()) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
@@ -271,10 +274,17 @@ private fun ExerciseListItem(
 private fun ExerciseDetailSheet(
     exercise: Exercise,
     isFavorite: Boolean,
+    isDownloadingImage: Boolean,
     onToggleFavorite: () -> Unit,
     onDismiss: () -> Unit,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    onSheetOpened: () -> Unit
 ) {
+    // Trigger lazy image download when sheet opens
+    LaunchedEffect(Unit) {
+        onSheetOpened()
+    }
+
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceVar) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp)
@@ -304,20 +314,53 @@ private fun ExerciseDetailSheet(
 
             Spacer(Modifier.height(16.dp))
 
-            // GIF
+            // GIF with lazy loading indicator
             if (exercise.gifUrl.isNotBlank()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(exercise.gifUrl)
-                        .decoderFactory(if (android.os.Build.VERSION.SDK_INT >= 28)
-                            ImageDecoderDecoder.Factory() else GifDecoder.Factory())
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = exercise.name,
+                Box(
                     modifier = Modifier.fillMaxWidth().height(220.dp)
                         .clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surface),
-                    contentScale = ContentScale.Fit
-                )
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(exercise.gifUrl)
+                            .decoderFactory(if (android.os.Build.VERSION.SDK_INT >= 28)
+                                ImageDecoderDecoder.Factory() else GifDecoder.Factory())
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = exercise.name,
+                        modifier = Modifier.fillMaxWidth().height(220.dp)
+                            .clip(RoundedCornerShape(16.dp)),
+                        contentScale = ContentScale.Fit
+                    )
+
+                    // Show loading spinner while image is being downloaded
+                    if (isDownloadingImage) {
+                        CircularProgressIndicator(
+                            color = Primary,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            } else {
+                // Placeholder while downloading
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(220.dp)
+                        .clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surface),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isDownloadingImage) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Primary, modifier = Modifier.size(40.dp))
+                            Spacer(Modifier.height(8.dp))
+                            Text("A carregar imagem...", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        Icon(Icons.Filled.FitnessCenter, null, tint = Primary, modifier = Modifier.size(56.dp))
+                    }
+                }
                 Spacer(Modifier.height(16.dp))
             }
 
