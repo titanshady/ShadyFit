@@ -1,6 +1,7 @@
 package com.fittrack.presentation.screens.analytics
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,17 +18,43 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.fittrack.data.local.dao.ExerciseFrequency
 import com.fittrack.data.local.entity.PersonalRecordEntity
 import com.fittrack.presentation.theme.*
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun AnalyticsScreen(vm: AnalyticsViewModel = hiltViewModel()) {
+fun AnalyticsScreen(
+    onExerciseClick: (exerciseId: String, exerciseName: String) -> Unit = { _, _ -> },
+    vm: AnalyticsViewModel = hiltViewModel()
+) {
     val totalWorkouts  by vm.totalWorkouts.collectAsState()
     val volumePoints   by vm.volumeOverTime.collectAsState()
     val topExercises   by vm.topExercises.collectAsState()
     val personalRecs   by vm.personalRecords.collectAsState()
     val totalVolume    by vm.totalVolume.collectAsState()
+    val streak         by vm.streakInfo.collectAsState()
+    val weekChange     by vm.weekOverWeekChange.collectAsState()
+    val mostTrainedMuscle by vm.mostTrainedMuscleGroup.collectAsState()
+
+    // Roadmap 8.2: illustrated empty state for a brand-new user — showing a wall of
+    // zeroed-out stat cards before there's any data feels broken, not empty.
+    if (totalWorkouts == 0) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                Icon(Icons.Filled.BarChart, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(64.dp))
+                Spacer(Modifier.height(16.dp))
+                Text("Ainda sem dados para analisar", style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                Text("Completa o teu primeiro treino para veres estatísticas, gráficos e recordes aqui.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+        }
+        return
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
@@ -44,7 +71,71 @@ fun AnalyticsScreen(vm: AnalyticsViewModel = hiltViewModel()) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 BigStatCard("Treinos\nRealizados", "$totalWorkouts", Icons.Filled.FitnessCenter, Primary, Modifier.weight(1f))
-                BigStatCard("Volume\nTotal", "${formatVolume(totalVolume)}", Icons.Filled.Scale, Accent, Modifier.weight(1f))
+                BigStatCard("Volume\nTotal", formatVolume(totalVolume), Icons.Filled.Scale, Accent, Modifier.weight(1f))
+            }
+        }
+
+        // Streak + weekly goal (roadmap 5.1 / 5.2)
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                BigStatCard(
+                    "Sequência\nAtual", "${streak.currentStreakDays}d", Icons.Filled.LocalFireDepartment,
+                    Color(0xFFFF7A00), Modifier.weight(1f)
+                )
+                BigStatCard(
+                    "Meta\nSemanal", "${streak.workoutsThisWeek}/${streak.weeklyGoal}", Icons.Filled.Flag,
+                    if (streak.workoutsThisWeek >= streak.weeklyGoal) Color(0xFF2ECC71) else Primary, Modifier.weight(1f)
+                )
+            }
+        }
+
+        // Week-over-week volume comparison (roadmap 3.5)
+        weekChange?.let { (thisWeek, _, pctChange) ->
+            item {
+                ChartCard(title = "Volume Esta Semana vs Anterior") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(formatVolume(thisWeek), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(10.dp))
+                        val positive = pctChange >= 0
+                        Surface(
+                            color = (if (positive) Color(0xFF2ECC71) else Color(0xFFE74C3C)).copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (positive) Icons.Filled.TrendingUp else Icons.Filled.TrendingDown,
+                                    null, tint = if (positive) Color(0xFF2ECC71) else Color(0xFFE74C3C),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    "${if (positive) "+" else ""}${String.format("%.0f", pctChange)}%",
+                                    color = if (positive) Color(0xFF2ECC71) else Color(0xFFE74C3C),
+                                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Most trained muscle group (roadmap 5.3)
+        mostTrainedMuscle?.let { muscle ->
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = muscleColor(muscle).copy(alpha = 0.12f)),
+                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Whatshot, null, tint = muscleColor(muscle))
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("Grupo Muscular Mais Treinado", style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(muscle.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold, color = muscleColor(muscle))
+                        }
+                    }
+                }
             }
         }
 
@@ -69,7 +160,7 @@ fun AnalyticsScreen(vm: AnalyticsViewModel = hiltViewModel()) {
                 Text("Recordes Pessoais", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
             items(personalRecs.take(10)) { record ->
-                PersonalRecordCard(record)
+                PersonalRecordCard(record, onClick = { onExerciseClick(record.exerciseId, record.exerciseName) })
             }
         }
 
@@ -80,7 +171,9 @@ fun AnalyticsScreen(vm: AnalyticsViewModel = hiltViewModel()) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         val max = topExercises.maxOf { it.count }.toFloat()
                         topExercises.take(6).forEach { ex ->
-                            Column {
+                            Column(
+                                modifier = Modifier.clickable { onExerciseClick(ex.exerciseId, ex.exerciseName) }
+                            ) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text(ex.exerciseName, style = MaterialTheme.typography.bodySmall,
                                         modifier = Modifier.weight(1f))
@@ -156,9 +249,9 @@ private fun ChartCard(title: String, content: @Composable ColumnScope.() -> Unit
 }
 
 @Composable
-private fun PersonalRecordCard(record: PersonalRecordEntity) {
+private fun PersonalRecordCard(record: PersonalRecordEntity, onClick: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = SurfaceVar), shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()) {
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(Primary.copy(alpha = 0.15f)),
@@ -178,6 +271,7 @@ private fun PersonalRecordCard(record: PersonalRecordEntity) {
                 Text("× ${record.repsAtMax} reps", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.outline)
         }
     }
 }

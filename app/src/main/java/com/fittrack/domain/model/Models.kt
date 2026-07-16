@@ -22,7 +22,8 @@ data class WorkoutExercise(
     val bodyPart: String,
     val targetMuscle: String,
     val order: Int = 0,
-    val sets: List<ExerciseSet> = emptyList()
+    val sets: List<ExerciseSet> = emptyList(),
+    val notes: String = ""
 )
 
 data class ExerciseSet(
@@ -32,7 +33,8 @@ data class ExerciseSet(
     val reps: Int,
     val weightKg: Float,
     val completed: Boolean = false,
-    val restSeconds: Int = 90
+    val restSeconds: Int = 90,
+    val rpe: Int? = null
 )
 
 // --- Exercise (from API) ----------------------------------------------------
@@ -98,7 +100,8 @@ data class UserProfile(
     val goalProtein: Int = 160,
     val goalCarbs: Int = 250,
     val goalFat: Int = 70,
-    val goalFiber: Int = 30
+    val goalFiber: Int = 30,
+    val weeklyGoal: Int = 3
 )
 
 // --- Analytics ---------------------------------------------------------------
@@ -120,6 +123,23 @@ data class ProgressPoint(
     val date: LocalDate,
     val maxWeightKg: Float,
     val totalVolume: Float          // sets × reps × weight
+)
+
+// --- Streak / Dashboard motivation (roadmap 5.1, 5.2, 13.1) -------------------
+
+data class StreakInfo(
+    val currentStreakDays: Int = 0,
+    val workoutsThisWeek: Int = 0,
+    val weeklyGoal: Int = 3
+)
+
+/** One estimated 1RM point, derived client-side from completed sets using the Epley
+ *  formula (roadmap 3.3): 1RM = weight × (1 + reps / 30). */
+data class OneRepMaxPoint(
+    val date: LocalDate,
+    val estimated1RM: Float,
+    val weightKg: Float,
+    val reps: Int
 )
 
 // --- Muscle Group Mapping ----------------------------------------------------

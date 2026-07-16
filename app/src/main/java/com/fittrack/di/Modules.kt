@@ -3,6 +3,7 @@ package com.fittrack.di
 import android.content.Context
 import androidx.room.Room
 import com.fittrack.BuildConfig
+import com.fittrack.data.local.ALL_MIGRATIONS
 import com.fittrack.data.local.FitTrackDatabase
 import com.fittrack.data.local.dao.*
 import com.fittrack.data.remote.api.ExerciseApiService
@@ -28,7 +29,12 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): FitTrackDatabase =
         Room.databaseBuilder(context, FitTrackDatabase::class.java, "fittrack.db")
-            .fallbackToDestructiveMigration()
+            // Explicit migrations from here on — see Migrations.kt. We only fall back to a
+            // destructive rebuild on a *downgrade* (e.g. debugging an older build), never on
+            // a forward schema change, so a person's local single-user data is never silently
+            // wiped by an app update.
+            .addMigrations(*ALL_MIGRATIONS)
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
 
     @Provides fun provideWorkoutDao(db: FitTrackDatabase) = db.workoutDao()
@@ -38,6 +44,8 @@ object DatabaseModule {
     @Provides fun provideUserProfileDao(db: FitTrackDatabase) = db.userProfileDao()
     @Provides fun providePersonalRecordDao(db: FitTrackDatabase) = db.personalRecordDao()
     @Provides fun provideAnalyticsDao(db: FitTrackDatabase) = db.analyticsDao()
+    @Provides fun provideFavoriteExerciseDao(db: FitTrackDatabase) = db.favoriteExerciseDao()
+    @Provides fun provideCachedExerciseDao(db: FitTrackDatabase) = db.cachedExerciseDao()
 }
 
 @Module

@@ -36,6 +36,14 @@ interface WorkoutDao {
 
     @Query("SELECT * FROM workouts WHERE isCompleted = 1 ORDER BY date DESC LIMIT 5")
     fun getRecentWorkouts(): Flow<List<WorkoutEntity>>
+
+    // Used to compute streaks / weekly frequency client-side (roadmap 5.1, 5.2) — grouping
+    // by consecutive calendar days is awkward in SQLite, much simpler in Kotlin.
+    @Query("SELECT date FROM workouts WHERE isCompleted = 1 ORDER BY date DESC")
+    fun getAllCompletedWorkoutDates(): Flow<List<LocalDateTime>>
+
+    @Query("SELECT AVG(durationMinutes) FROM workouts WHERE isCompleted = 1 AND durationMinutes > 0")
+    fun getAverageDurationMinutes(): Flow<Float?>
 }
 
 // --- Workout Exercise DAO -----------------------------------------------------
@@ -79,6 +87,25 @@ interface ExerciseSetDao {
 
     @Query("DELETE FROM exercise_sets WHERE workoutExerciseId = :workoutExerciseId")
     suspend fun deleteAllForExercise(workoutExerciseId: Long)
+
+    // "Última vez" (roadmap 1.3) — sets from the most recent *other* completed session
+    // that included this exercise, so ActiveWorkoutScreen can show "última vez: 60kg x 8".
+    @Query(
+        """
+        SELECT es.* FROM exercise_sets es
+        JOIN workout_exercises we ON es.workoutExerciseId = we.id
+        JOIN workouts w ON we.workoutId = w.id
+        WHERE we.exerciseId = :exerciseId AND w.isCompleted = 1 AND w.id != :excludeWorkoutId
+          AND w.id = (
+              SELECT w2.id FROM workouts w2
+              JOIN workout_exercises we2 ON we2.workoutId = w2.id
+              WHERE we2.exerciseId = :exerciseId AND w2.isCompleted = 1 AND w2.id != :excludeWorkoutId
+              ORDER BY w2.date DESC LIMIT 1
+          )
+        ORDER BY es.setNumber ASC
+        """
+    )
+    suspend fun getLastSessionSets(exerciseId: String, excludeWorkoutId: Long): List<ExerciseSetEntity>
 }
 
 // --- Food Log DAO -------------------------------------------------------------
@@ -137,6 +164,43 @@ interface PersonalRecordDao {
     suspend fun getMaxWeightForExercise(exerciseId: String): Float?
 }
 
+// --- Favorite Exercise DAO ----------------------------------------------------
+
+@Dao
+interface FavoriteExerciseDao {
+    @Query("SELECT * FROM favorite_exercises ORDER BY addedAt DESC")
+    fun getAllFavorites(): Flow<List<FavoriteExerciseEntity>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM favorite_exercises WHERE exerciseId = :exerciseId)")
+    fun isFavorite(exerciseId: String): Flow<Boolean>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun addFavorite(favorite: FavoriteExerciseEntity)
+
+    @Query("DELETE FROM favorite_exercises WHERE exerciseId = :exerciseId")
+    suspend fun removeFavorite(exerciseId: String)
+}
+
+// --- Cached Exercise DAO (Room-backed replacement for the old in-memory map) --
+
+@Dao
+interface CachedExerciseDao {
+    @Query("SELECT * FROM cached_exercise_queries WHERE queryKey = :key")
+    suspend fun getQuery(key: String): CachedExerciseQueryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertQuery(query: CachedExerciseQueryEntity)
+
+    @Query("SELECT * FROM cached_exercises WHERE exerciseId IN (:ids)")
+    suspend fun getExercisesByIds(ids: List<String>): List<CachedExerciseEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertExercises(exercises: List<CachedExerciseEntity>)
+
+    @Query("SELECT * FROM cached_exercises WHERE exerciseId = :id")
+    suspend fun getExerciseById(id: String): CachedExerciseEntity?
+}
+
 // --- Analytics helpers -------------------------------------------------------
 
 @Dao
@@ -162,8 +226,21 @@ interface AnalyticsDao {
     """)
     fun getVolumeOverTime(): Flow<List<VolumePoint>>
 
+    // Same as above but without the LIMIT 20 — used for weekly/monthly aggregation and
+    // week-over-week comparison (roadmap 3.4, 3.5), which needs the full history.
     @Query("""
-        SELECT we.exerciseName, we.bodyPart, COUNT(*) as count
+        SELECT w.date, SUM(es.weightKg * es.reps) as totalVolume
+        FROM workouts w
+        JOIN workout_exercises we ON we.workoutId = w.id
+        JOIN exercise_sets es ON es.workoutExerciseId = we.id
+        WHERE w.isCompleted = 1
+        GROUP BY w.id
+        ORDER BY w.date ASC
+    """)
+    fun getAllVolumeOverTime(): Flow<List<VolumePoint>>
+
+    @Query("""
+        SELECT we.exerciseId, we.exerciseName, we.bodyPart, COUNT(*) as count
         FROM workout_exercises we
         JOIN workouts w ON we.workoutId = w.id
         WHERE w.isCompleted = 1
@@ -172,7 +249,29 @@ interface AnalyticsDao {
         LIMIT 10
     """)
     fun getTopExercises(): Flow<List<ExerciseFrequency>>
+
+    // Full history of a single exercise across every completed workout (roadmap 3.1),
+    // newest first, used by the exercise history screen.
+    @Query("""
+        SELECT w.id as workoutId, w.date as date, es.setNumber as setNumber,
+               es.reps as reps, es.weightKg as weightKg, es.completed as completed, es.rpe as rpe
+        FROM exercise_sets es
+        JOIN workout_exercises we ON es.workoutExerciseId = we.id
+        JOIN workouts w ON we.workoutId = w.id
+        WHERE we.exerciseId = :exerciseId AND w.isCompleted = 1
+        ORDER BY w.date DESC, es.setNumber ASC
+    """)
+    fun getExerciseHistory(exerciseId: String): Flow<List<ExerciseHistoryRow>>
 }
 
 data class VolumePoint(val date: LocalDateTime, val totalVolume: Float)
-data class ExerciseFrequency(val exerciseName: String, val bodyPart: String, val count: Int)
+data class ExerciseFrequency(val exerciseId: String, val exerciseName: String, val bodyPart: String, val count: Int)
+data class ExerciseHistoryRow(
+    val workoutId: Long,
+    val date: LocalDateTime,
+    val setNumber: Int,
+    val reps: Int,
+    val weightKg: Float,
+    val completed: Boolean,
+    val rpe: Int?
+)

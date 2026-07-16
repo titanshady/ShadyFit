@@ -35,14 +35,23 @@ class ExerciseViewModel @Inject constructor(
     private val _selectedExercise = MutableStateFlow<Exercise?>(null)
     val selectedExercise: StateFlow<Exercise?> = _selectedExercise
 
+    // -- Favorites (roadmap 7.1) -------------------------------------------------
+    private val _showFavoritesOnly = MutableStateFlow(false)
+    val showFavoritesOnly: StateFlow<Boolean> = _showFavoritesOnly
+
+    val favoriteIds: StateFlow<Set<String>> = repository.getFavorites()
+        .map { list -> list.map { it.exerciseId }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     // Filtered exercises
     val filteredExercises: StateFlow<List<Exercise>> = combine(
-        _exercises, _searchQuery, _selectedBodyPart
-    ) { exercises, query, bodyPart ->
+        _exercises, _searchQuery, _selectedBodyPart, _showFavoritesOnly, favoriteIds
+    ) { exercises, query, bodyPart, favoritesOnly, favIds ->
         exercises.filter { ex ->
             (query.isBlank() || ex.name.contains(query, ignoreCase = true) ||
                     ex.target.contains(query, ignoreCase = true)) &&
-                    (bodyPart == null || ex.bodyPart.equals(bodyPart, ignoreCase = true))
+                    (bodyPart == null || ex.bodyPart.equals(bodyPart, ignoreCase = true)) &&
+                    (!favoritesOnly || favIds.contains(ex.id))
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -98,6 +107,15 @@ class ExerciseViewModel @Inject constructor(
         } else {
             _exercises.value = repository.getLocalExercises()
             loadExercisesFromApi()
+        }
+    }
+
+    fun toggleFavoritesOnly() { _showFavoritesOnly.value = !_showFavoritesOnly.value }
+
+    fun toggleFavorite(exercise: Exercise) {
+        viewModelScope.launch {
+            val isFav = favoriteIds.value.contains(exercise.id)
+            repository.toggleFavorite(exercise, isFav)
         }
     }
 

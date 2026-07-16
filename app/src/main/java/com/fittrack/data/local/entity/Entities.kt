@@ -53,7 +53,8 @@ data class WorkoutExerciseEntity(
     val bodyPart: String,
     val targetMuscle: String,
     val gifUrl: String = "",
-    val order: Int = 0
+    val order: Int = 0,
+    val notes: String = ""
 )
 
 // --- Exercise Set ------------------------------------------------------------
@@ -75,7 +76,8 @@ data class ExerciseSetEntity(
     val reps: Int,
     val weightKg: Float,
     val completed: Boolean = false,
-    val restSeconds: Int = 90
+    val restSeconds: Int = 90,
+    val rpe: Int? = null
 )
 
 // --- Food Log -----------------------------------------------------------------
@@ -110,7 +112,8 @@ data class UserProfileEntity(
     val goalProtein: Int = 160,
     val goalCarbs: Int = 250,
     val goalFat: Int = 70,
-    val goalFiber: Int = 30
+    val goalFiber: Int = 30,
+    val weeklyGoal: Int = 3
 )
 
 // --- Personal Record ----------------------------------------------------------
@@ -123,6 +126,42 @@ data class PersonalRecordEntity(
     val maxWeightKg: Float,
     val repsAtMax: Int,
     val date: LocalDate
+)
+
+// --- Favorite Exercise ---------------------------------------------------------
+
+@Entity(tableName = "favorite_exercises")
+data class FavoriteExerciseEntity(
+    @PrimaryKey val exerciseId: String,
+    val exerciseName: String,
+    val bodyPart: String,
+    val addedAt: LocalDateTime
+)
+
+// --- Exercise Cache (Room-backed, replaces the old in-memory mutableMapOf) -----
+// See roadmap item 7.5: the free ExerciseDB plan allows only 10 requests/day,
+// so the cache must survive process death — a plain in-memory map does not.
+
+@Entity(tableName = "cached_exercises")
+data class CachedExerciseEntity(
+    @PrimaryKey val exerciseId: String,
+    val name: String,
+    val bodyPart: String,
+    val equipment: String,
+    val target: String,
+    val secondaryMuscles: List<String> = emptyList(),
+    val gifUrl: String = "",
+    val instructions: List<String> = emptyList(),
+    val cachedAt: LocalDateTime
+)
+
+/** Remembers which exercise ids were returned for a given list query (bodyPart+offset or search),
+ *  so we can reconstruct the exact same page from [CachedExerciseEntity] without hitting the API. */
+@Entity(tableName = "cached_exercise_queries")
+data class CachedExerciseQueryEntity(
+    @PrimaryKey val queryKey: String,
+    val exerciseIds: List<String>,
+    val cachedAt: LocalDateTime
 )
 
 // --- Relation helpers ---------------------------------------------------------

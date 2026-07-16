@@ -13,9 +13,12 @@ import com.fittrack.data.local.entity.*
         ExerciseSetEntity::class,
         FoodLogEntity::class,
         UserProfileEntity::class,
-        PersonalRecordEntity::class
+        PersonalRecordEntity::class,
+        FavoriteExerciseEntity::class,
+        CachedExerciseEntity::class,
+        CachedExerciseQueryEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -27,4 +30,6 @@ abstract class FitTrackDatabase : RoomDatabase() {
     abstract fun userProfileDao(): UserProfileDao
     abstract fun personalRecordDao(): PersonalRecordDao
     abstract fun analyticsDao(): AnalyticsDao
+    abstract fun favoriteExerciseDao(): FavoriteExerciseDao
+    abstract fun cachedExerciseDao(): CachedExerciseDao
 }

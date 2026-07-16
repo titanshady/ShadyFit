@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.fittrack.domain.model.StreakInfo
 import com.fittrack.presentation.screens.analytics.AnalyticsViewModel
 import com.fittrack.presentation.screens.nutrition.NutritionViewModel
 import com.fittrack.presentation.screens.workout.WorkoutViewModel
@@ -36,6 +37,10 @@ fun HomeScreen(
     val totalVolume by analyticsVm.totalVolume.collectAsState()
     val dailyNutrition by nutritionVm.dailyNutrition.collectAsState()
     val profile by nutritionVm.profile.collectAsState()
+    val streak by analyticsVm.streakInfo.collectAsState()
+    val mostTrainedMuscle by analyticsVm.mostTrainedMuscleGroup.collectAsState()
+    val favoriteExercise by analyticsVm.favoriteExerciseName.collectAsState()
+    val averageDurationMinutes by analyticsVm.averageDurationMinutes.collectAsState()
     val recentWorkouts = workouts.take(3)
 
     Column(
@@ -45,12 +50,12 @@ fun HomeScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 16.dp)
     ) {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
 
         // Header
         Text("ShadyFit", style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
-        Text("Bom treino!", style = MaterialTheme.typography.bodyMedium,
+            color = Primary, fontWeight = FontWeight.ExtraBold)
+        Text("Bom treino! 💪", style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Spacer(Modifier.height(20.dp))
@@ -60,37 +65,45 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(
-                    Brush.linearGradient(listOf(PrimaryDark, Primary))
-                )
+                .background(Brush.horizontalGradient(listOf(Primary, Secondary)))
                 .padding(20.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Iniciar Treino", style = MaterialTheme.typography.titleLarge,
-                        color = OnPrimary, fontWeight = FontWeight.Bold)
-                    Text("Cria uma nova sessão de treino", style = MaterialTheme.typography.bodySmall,
-                        color = OnPrimary.copy(alpha = 0.75f))
-                    Spacer(Modifier.height(14.dp))
-                    Button(
-                        onClick = onStartWorkout,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = OnPrimary, contentColor = Primary)
-                    ) {
-                        Icon(Icons.Filled.PlayArrow, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Começar", fontWeight = FontWeight.SemiBold)
-                    }
+            Column {
+                Text("Iniciar Treino", style = MaterialTheme.typography.titleLarge,
+                    color = OnPrimary, fontWeight = FontWeight.Bold)
+                Text("Cria uma nova sessão de treino", style = MaterialTheme.typography.bodySmall,
+                    color = OnPrimary.copy(alpha = 0.8f))
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = onStartWorkout,
+                    colors = ButtonDefaults.buttonColors(containerColor = OnPrimary, contentColor = Primary)) {
+                    Icon(Icons.Filled.PlayArrow, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Começar")
                 }
-                Icon(
-                    Icons.Filled.FitnessCenter, null,
-                    tint = OnPrimary.copy(alpha = 0.18f),
-                    modifier = Modifier.size(72.dp)
-                )
             }
         }
 
         Spacer(Modifier.height(20.dp))
+
+        // Streak + weekly goal (roadmap 5.1 / 5.2)
+        if (totalWorkouts > 0) {
+            StreakCard(streak = streak)
+            Spacer(Modifier.height(10.dp))
+        }
+
+        // Most trained muscle group + favorite exercise (roadmap 5.3 / 5.4)
+        if (mostTrainedMuscle != null || favoriteExercise != null) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                mostTrainedMuscle?.let { muscle ->
+                    InfoChip("Grupo Favorito", muscle.replaceFirstChar { it.uppercase() },
+                        Icons.Filled.Whatshot, Modifier.weight(1f))
+                }
+                favoriteExercise?.let { exName ->
+                    InfoChip("Exercício Favorito", exName, Icons.Filled.Star, Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
 
         // Stats Row
         Text("Estatísticas", style = MaterialTheme.typography.titleMedium,
@@ -106,6 +119,13 @@ fun HomeScreen(
                 Icons.Filled.LocalFireDepartment, Color(0xFFFF6B35), Modifier.weight(1f))
             StatCard("Proteína Hoje", "${String.format("%.0f", dailyNutrition.protein)} g",
                 Icons.Filled.Egg, Color(0xFF9B59B6), Modifier.weight(1f))
+        }
+
+        // Tempo médio de treino (roadmap 5.5)
+        averageDurationMinutes?.let { avgMin ->
+            Spacer(Modifier.height(10.dp))
+            StatCard("Tempo Médio de Treino", "${String.format("%.0f", avgMin)} min",
+                Icons.Filled.Timer, Color(0xFF3498DB), Modifier.fillMaxWidth())
         }
 
         Spacer(Modifier.height(20.dp))
@@ -138,8 +158,7 @@ fun HomeScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     colors = CardDefaults.cardColors(containerColor = SurfaceVar),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -171,6 +190,49 @@ fun HomeScreen(
 }
 
 @Composable
+private fun StreakCard(streak: StreakInfo) {
+    val goalMet = streak.workoutsThisWeek >= streak.weeklyGoal
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SurfaceVar),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.LocalFireDepartment, null, tint = Color(0xFFFF7A00), modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (streak.currentStreakDays > 0) "${streak.currentStreakDays} dias seguidos" else "Começa a tua sequência",
+                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Esta semana: ${streak.workoutsThisWeek}/${streak.weeklyGoal} treinos",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (goalMet) {
+                Icon(Icons.Filled.CheckCircle, null, tint = Color(0xFF2ECC71), modifier = Modifier.size(22.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoChip(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
+    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = SurfaceVar), shape = RoundedCornerShape(14.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = Accent, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
 private fun StatCard(
     label: String, value: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -180,20 +242,11 @@ private fun StatCard(
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = SurfaceVar),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(color.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
-            }
-            Spacer(Modifier.height(10.dp))
+            Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.height(8.dp))
             Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(label, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -211,7 +264,6 @@ private fun CaloriesProgressCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = SurfaceVar),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(Modifier.padding(16.dp)) {

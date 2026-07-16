@@ -1,5 +1,6 @@
 package com.fittrack.presentation.screens.exercise
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,12 +13,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import coil.request.ImageRequest
 import com.fittrack.domain.model.Exercise
-import com.fittrack.presentation.components.ExerciseGifHero
-import com.fittrack.presentation.components.ExerciseGifThumbnail
 import com.fittrack.presentation.screens.workout.WorkoutViewModel
 import com.fittrack.presentation.theme.*
 
@@ -36,10 +42,14 @@ fun ExerciseBrowserScreen(
     val selectedBodyPart by exerciseVm.selectedBodyPart.collectAsState()
     val searchQuery by exerciseVm.searchQuery.collectAsState()
     val selectedExercise by exerciseVm.selectedExercise.collectAsState()
+    val showFavoritesOnly by exerciseVm.showFavoritesOnly.collectAsState()
+    val favoriteIds by exerciseVm.favoriteIds.collectAsState()
 
     selectedExercise?.let { exercise ->
         ExerciseDetailSheet(
             exercise = exercise,
+            isFavorite = favoriteIds.contains(exercise.id),
+            onToggleFavorite = { exerciseVm.toggleFavorite(exercise) },
             onDismiss = { exerciseVm.clearSelection() },
             onAdd = {
                 workoutVm.addExercise(exercise)
@@ -52,20 +62,13 @@ fun ExerciseBrowserScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        "Biblioteca de Exercícios",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                },
+                title = { Text("Biblioteca de Exercícios", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) { Icon(Icons.Filled.ArrowBack, null) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
-        },
-        containerColor = MaterialTheme.colorScheme.background
+        }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
 
@@ -75,56 +78,46 @@ fun ExerciseBrowserScreen(
                 onValueChange = exerciseVm::search,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Pesquisar exercícios...") },
-                leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                leadingIcon = { Icon(Icons.Filled.Search, null) },
                 trailingIcon = {
                     if (searchQuery.isNotBlank())
                         IconButton(onClick = { exerciseVm.search("") }) { Icon(Icons.Filled.Clear, null) }
                 },
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = OutlineSubtle,
-                    focusedBorderColor = Primary,
-                    unfocusedContainerColor = SurfaceVar,
-                    focusedContainerColor = SurfaceVar
-                ),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 singleLine = true
             )
 
-            // Body part filter chips
+            // Body part filter chips (roadmap 7.1: "Favoritos" is a pseudo body-part filter)
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item {
                     FilterChip(
-                        selected = selectedBodyPart == null,
-                        onClick = { exerciseVm.filterByBodyPart(null) },
-                        label = { Text("Todos") },
+                        selected = showFavoritesOnly,
+                        onClick = { exerciseVm.toggleFavoritesOnly() },
+                        leadingIcon = { Icon(Icons.Filled.Star, null, modifier = Modifier.size(16.dp)) },
+                        label = { Text("Favoritos") },
                         colors = FilterChipDefaults.filterChipColors(
-                            containerColor = SurfaceVar,
-                            selectedContainerColor = PrimaryMuted,
-                            selectedLabelColor = Primary
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true, selected = selectedBodyPart == null,
-                            borderColor = OutlineSubtle, selectedBorderColor = Primary.copy(alpha = 0.4f)
+                            selectedContainerColor = Accent, selectedLabelColor = OnPrimary
                         )
                     )
                 }
-                items(bodyParts) { part ->
-                    val isSelected = selectedBodyPart == part
+                item {
                     FilterChip(
-                        selected = isSelected,
-                        onClick = { exerciseVm.filterByBodyPart(if (isSelected) null else part) },
+                        selected = selectedBodyPart == null,
+                        onClick = { exerciseVm.filterByBodyPart(null) },
+                        label = { Text("Todos") }
+                    )
+                }
+                items(bodyParts) { part ->
+                    FilterChip(
+                        selected = selectedBodyPart == part,
+                        onClick = { exerciseVm.filterByBodyPart(if (selectedBodyPart == part) null else part) },
                         label = { Text(part.replaceFirstChar { it.uppercase() }) },
                         colors = FilterChipDefaults.filterChipColors(
-                            containerColor = SurfaceVar,
-                            selectedContainerColor = PrimaryMuted,
-                            selectedLabelColor = Primary
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true, selected = isSelected,
-                            borderColor = OutlineSubtle, selectedBorderColor = Primary.copy(alpha = 0.4f)
+                            selectedContainerColor = Primary,
+                            selectedLabelColor = OnPrimary
                         )
                     )
                 }
@@ -136,7 +129,7 @@ fun ExerciseBrowserScreen(
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     color = MaterialTheme.colorScheme.errorContainer,
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Info, null, tint = MaterialTheme.colorScheme.onErrorContainer,
@@ -158,15 +151,28 @@ fun ExerciseBrowserScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+            } else if (showFavoritesOnly && exercises.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Filled.StarBorder, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(56.dp))
+                        Spacer(Modifier.height(12.dp))
+                        Text("Ainda sem favoritos", style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Toca na estrela num exercício para o adicionar aqui.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(exercises, key = { it.id }) { exercise ->
                         ExerciseListItem(
                             exercise = exercise,
-                            onClick = { exerciseVm.selectExercise(exercise) }
+                            isFavorite = favoriteIds.contains(exercise.id),
+                            onClick = { exerciseVm.selectExercise(exercise) },
+                            onToggleFavorite = { exerciseVm.toggleFavorite(exercise) }
                         )
                     }
                     if (isLoading) {
@@ -184,37 +190,60 @@ fun ExerciseBrowserScreen(
 }
 
 @Composable
-private fun ExerciseListItem(exercise: Exercise, onClick: () -> Unit) {
+private fun ExerciseListItem(
+    exercise: Exercise, isFavorite: Boolean,
+    onClick: () -> Unit, onToggleFavorite: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = SurfaceVar),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(12.dp)
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            ExerciseGifThumbnail(
-                gifUrl = exercise.gifUrl,
-                contentDescription = exercise.name,
-                size = 72.dp
-            )
+            // GIF thumbnail
+            if (exercise.gifUrl.isNotBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(exercise.gifUrl)
+                        .decoderFactory(if (android.os.Build.VERSION.SDK_INT >= 28)
+                            ImageDecoderDecoder.Factory() else GifDecoder.Factory())
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = exercise.name,
+                    modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.FitnessCenter, null, tint = Primary, modifier = Modifier.size(28.dp))
+                }
+            }
 
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(exercise.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(3.dp))
                 Text(
                     "${exercise.bodyPart.replaceFirstChar { it.uppercase() }} • ${exercise.target}",
                     style = MaterialTheme.typography.bodySmall,
                     color = Primary
                 )
                 if (exercise.equipment.isNotBlank()) {
-                    Spacer(Modifier.height(2.dp))
                     Text(exercise.equipment.replaceFirstChar { it.uppercase() },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder, null,
+                    tint = if (isFavorite) Accent else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -223,80 +252,98 @@ private fun ExerciseListItem(exercise: Exercise, onClick: () -> Unit) {
 @Composable
 private fun ExerciseDetailSheet(
     exercise: Exercise,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onDismiss: () -> Unit,
     onAdd: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceElevated) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = SurfaceVar) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp)
         ) {
-            Text(exercise.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(exercise.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f))
+                IconButton(onClick = onToggleFavorite) {
+                    Icon(
+                        if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder, null,
+                        tint = if (isFavorite) Accent else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(color = PrimaryMuted, shape = RoundedCornerShape(8.dp)) {
+                Surface(color = Primary.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
                     Text(exercise.bodyPart.replaceFirstChar { it.uppercase() },
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         style = MaterialTheme.typography.labelSmall, color = Primary)
                 }
-                Surface(color = Secondary.copy(alpha = 0.16f), shape = RoundedCornerShape(8.dp)) {
+                Surface(color = Secondary.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
                     Text(exercise.target.replaceFirstChar { it.uppercase() },
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         style = MaterialTheme.typography.labelSmall, color = Secondary)
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
 
-            ExerciseGifHero(
-                gifUrl = exercise.gifUrl,
-                contentDescription = exercise.name,
-                height = 260.dp
-            )
-
-            Spacer(Modifier.height(20.dp))
+            // GIF
+            if (exercise.gifUrl.isNotBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(exercise.gifUrl)
+                        .decoderFactory(if (android.os.Build.VERSION.SDK_INT >= 28)
+                            ImageDecoderDecoder.Factory() else GifDecoder.Factory())
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = exercise.name,
+                    modifier = Modifier.fillMaxWidth().height(220.dp)
+                        .clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surface),
+                    contentScale = ContentScale.Fit
+                )
+                Spacer(Modifier.height(16.dp))
+            }
 
             // Secondary muscles
             if (exercise.secondaryMuscles.isNotEmpty()) {
                 Text("Músculos secundários", style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(4.dp))
                 Text(exercise.secondaryMuscles.joinToString(", ") { it.replaceFirstChar { c -> c.uppercase() } },
                     style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
             }
 
             // Instructions
             if (exercise.instructions.isNotEmpty()) {
                 Text("Como executar", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 exercise.instructions.forEachIndexed { index, instruction ->
                     Row(
-                        modifier = Modifier.padding(vertical = 5.dp),
+                        modifier = Modifier.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.Top
                     ) {
                         Surface(
                             shape = RoundedCornerShape(50),
-                            color = PrimaryMuted,
+                            color = Primary,
                             modifier = Modifier.size(22.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text("${index + 1}", style = MaterialTheme.typography.labelSmall,
-                                    color = Primary, fontWeight = FontWeight.Bold)
+                                    color = OnPrimary, fontWeight = FontWeight.Bold)
                             }
                         }
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(10.dp))
                         Text(instruction, style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f))
                     }
                 }
             }
 
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(20.dp))
 
             Button(
                 onClick = onAdd,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Primary, contentColor = OnPrimary)
             ) {
                 Icon(Icons.Filled.Add, null)

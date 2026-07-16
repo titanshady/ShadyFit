@@ -80,7 +80,6 @@ fun WorkoutCard(workout: Workout, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = SurfaceVar),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
@@ -96,7 +95,7 @@ fun WorkoutCard(workout: Workout, onClick: () -> Unit) {
                     )
                 }
                 if (workout.durationMinutes > 0) {
-                    Surface(color = PrimaryMuted, shape = RoundedCornerShape(8.dp)) {
+                    Surface(color = Primary.copy(alpha = 0.15f), shape = RoundedCornerShape(8.dp)) {
                         Text("${workout.durationMinutes} min",
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelSmall, color = Primary)

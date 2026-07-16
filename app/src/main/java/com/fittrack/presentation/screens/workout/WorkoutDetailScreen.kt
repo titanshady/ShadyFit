@@ -1,5 +1,6 @@
 package com.fittrack.presentation.screens.workout
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +17,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.fittrack.domain.model.WorkoutExercise
 import com.fittrack.presentation.components.BodyFigureWidget
 import com.fittrack.presentation.theme.*
+import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -25,13 +27,26 @@ fun WorkoutDetailScreen(
     onNavigateBack: () -> Unit,
     onEditWorkout: () -> Unit,
     onStartWorkout: () -> Unit,
+    onWorkoutDuplicated: (Long) -> Unit = {},
     vm: WorkoutViewModel = hiltViewModel()
 ) {
     val workout by vm.selectedWorkout.collectAsState()
+    val duplicatedId by vm.duplicatedWorkoutId.collectAsState()
 
     LaunchedEffect(workoutId) { vm.loadWorkoutDetail(workoutId) }
 
+    LaunchedEffect(duplicatedId) {
+        duplicatedId?.let {
+            onWorkoutDuplicated(it)
+            vm.clearDuplicatedWorkoutId()
+        }
+    }
+
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameText by remember(workout?.name) { mutableStateOf(workout?.name ?: "") }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -39,7 +54,26 @@ fun WorkoutDetailScreen(
             title = { Text("Eliminar treino") },
             text = { Text("Tens a certeza que queres eliminar este treino?") },
             confirmButton = {
-                TextButton(onClick = { vm.deleteWorkout(workoutId); onNavigateBack() },
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        // Roadmap 8.3: don't delete right away — give the user a chance to undo.
+                        // The workout is only actually removed if the snackbar times out or is
+                        // dismissed without pressing "Desfazer".
+                        coroutineScope.launch {
+                            val result = snackbarHostState.showSnackbar(
+                                message = "Treino eliminado",
+                                actionLabel = "Desfazer",
+                                duration = SnackbarDuration.Long
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                // Kept as-is; nothing to do.
+                            } else {
+                                vm.deleteWorkout(workoutId)
+                                onNavigateBack()
+                            }
+                        }
+                    },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
                     Text("Eliminar")
                 }
@@ -48,7 +82,29 @@ fun WorkoutDetailScreen(
         )
     }
 
+    // Quick rename (roadmap 2.2) — no need to open the full editor just to change the name
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text("Renomear treino") },
+            text = {
+                OutlinedTextField(
+                    value = renameText, onValueChange = { renameText = it },
+                    singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (renameText.isNotBlank()) vm.renameWorkout(workoutId, renameText.trim())
+                    showRenameDialog = false
+                }) { Text("Guardar") }
+            },
+            dismissButton = { TextButton(onClick = { showRenameDialog = false }) { Text("Cancelar") } }
+        )
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(workout?.name ?: "Treino", fontWeight = FontWeight.Bold) },
@@ -56,6 +112,12 @@ fun WorkoutDetailScreen(
                     IconButton(onClick = onNavigateBack) { Icon(Icons.Filled.ArrowBack, null) }
                 },
                 actions = {
+                    IconButton(onClick = { showRenameDialog = true }) {
+                        Icon(Icons.Filled.DriveFileRenameOutline, null, tint = Primary)
+                    }
+                    IconButton(onClick = { vm.duplicateWorkout(workoutId) }) {
+                        Icon(Icons.Filled.ContentCopy, null, tint = Primary)
+                    }
                     IconButton(onClick = onEditWorkout) { Icon(Icons.Filled.Edit, null, tint = Primary) }
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error)
@@ -179,6 +241,13 @@ private fun ExerciseDetailCard(ex: WorkoutExercise) {
                     Text("${String.format("%.1f", set.reps * set.weightKg)} kg", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            if (ex.notes.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(6.dp))
+                Text("Nota: ${ex.notes}", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

@@ -9,55 +9,43 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-// -- Paleta -------------------------------------------------------------
-// Base gráfite/carvão com um verde-esmeralda contido como cor de assinatura
-// e um dourado suave como acento — combinação premium, sem apelo "neon".
-val Primary        = Color(0xFF2FBE8F)   // Esmeralda contido (ação principal)
-val PrimaryDark    = Color(0xFF1C8F6B)
-val PrimaryMuted   = Color(0xFF1B3A32)   // fundo de badges/tints sobre Primary
-val Secondary      = Color(0xFF7C8CF8)   // Indigo suave (dados secundários)
-val Accent         = Color(0xFFCFA96A)   // Dourado fosco (destaques/calorias)
+// -- Colour palette ----------------------------------------------------------
+val Primary      = Color(0xFFE50000)   // Neon green-teal
+val PrimaryDark  = Color(0xFF00B377)
+val Secondary    = Color(0xFF0D9488)
+val Accent       = Color(0xFFFF6B35)   // Orange for calories/highlights
+val Background   = Color(0xFF0A0A0F)   // Near-black
+val Surface      = Color(0xFF131320)
+val SurfaceVar   = Color(0xFF1C1C2E)
+val OnBackground = Color(0xFFF0F0F5)
+val OnSurface    = Color(0xFFE0E0EF)
+val OnPrimary    = Color(0xFF001A0E)
 
-val Background     = Color(0xFF0B0D10)   // Grafite quase preto
-val Surface        = Color(0xFF14171C)
-val SurfaceVar     = Color(0xFF1B1F26)
-val SurfaceElevated= Color(0xFF222630)   // cartões "flutuantes" (modais, destaque)
-val OutlineSubtle  = Color(0xFF2A2E37)   // bordas discretas em cartões
-
-val OnBackground   = Color(0xFFEDEEF1)
-val OnSurface      = Color(0xFFE3E5EA)
-val OnSurfaceMuted  = Color(0xFF9AA0AC)
-val OnPrimary      = Color(0xFF04140F)
-
-// Cores por grupo muscular — levemente dessaturadas para manter a
-// elegância do tema escuro (mantém a distinção, perde o "neon").
-val MuscleChest       = Color(0xFFE0625B)
-val MuscleBack        = Color(0xFF5C8FD6)
-val MuscleShoulders   = Color(0xFFD8B64C)
-val MuscleArms        = Color(0xFF9670BE)
-val MuscleCore        = Color(0xFFD98A47)
-val MuscleLegs        = Color(0xFF4FAE7C)
-val MuscleGlutes      = Color(0xFFCB6690)
-val MuscleCalves      = Color(0xFF3FA8AE)
+// Muscle group colours
+val MuscleChest       = Color(0xFFFF4D4D)
+val MuscleBack        = Color(0xFF4D9FFF)
+val MuscleShoulders   = Color(0xFFFFD700)
+val MuscleArms        = Color(0xFF9B59B6)
+val MuscleCore        = Color(0xFFFF8C00)
+val MuscleLegs        = Color(0xFF2ECC71)
+val MuscleGlutes      = Color(0xFFE91E63)
+val MuscleCalves      = Color(0xFF00BCD4)
 val MuscleInactive    = Color(0xFF2A2A3A)
 
 private val DarkColorScheme = darkColorScheme(
     primary            = Primary,
     onPrimary          = OnPrimary,
-    primaryContainer   = PrimaryMuted,
-    onPrimaryContainer = Primary,
+    primaryContainer   = PrimaryDark,
     secondary          = Secondary,
     tertiary           = Accent,
     background         = Background,
     surface            = Surface,
     surfaceVariant     = SurfaceVar,
-    surfaceTint        = Color.Transparent,
     onBackground       = OnBackground,
     onSurface          = OnSurface,
-    onSurfaceVariant   = OnSurfaceMuted,
-    outline            = OutlineSubtle,
-    outlineVariant     = Color(0xFF20232B),
-    error              = Color(0xFFE0665F),
+    onSurfaceVariant   = Color(0xFFAAAAAF),
+    outline            = Color(0xFF3A3A4A),
+    error              = Color(0xFFFF5252),
 )
 
 @Composable
@@ -67,7 +55,6 @@ fun FitTrackTheme(content: @Composable () -> Unit) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = Background.toArgb()
-            window.navigationBarColor = Background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
     }

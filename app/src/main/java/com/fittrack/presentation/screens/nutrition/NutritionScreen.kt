@@ -31,6 +31,7 @@ import com.fittrack.domain.model.FoodLog
 import com.fittrack.domain.model.MealType
 import com.fittrack.domain.model.UserProfile
 import com.fittrack.presentation.theme.*
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -49,6 +50,27 @@ fun NutritionScreen(vm: NutritionViewModel = hiltViewModel()) {
     var showAddFood    by remember { mutableStateOf(false) }
     var activeMealType by remember { mutableStateOf(MealType.LUNCH) }
     var showSettings   by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    // Roadmap 8.3: optimistically hide a deleted log and only actually remove it from the
+    // database if the "Desfazer" snackbar times out without being tapped.
+    var pendingDeleteIds by remember { mutableStateOf(setOf<Long>()) }
+
+    fun requestDeleteFoodLog(log: FoodLog) {
+        pendingDeleteIds = pendingDeleteIds + log.id
+        coroutineScope.launch {
+            val result = snackbarHostState.showSnackbar(
+                message = "Registo eliminado",
+                actionLabel = "Desfazer",
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                pendingDeleteIds = pendingDeleteIds - log.id
+            } else {
+                vm.deleteFoodLog(log)
+            }
+        }
+    }
 
     if (showSettings && profile != null) {
         GoalSettingsDialog(
@@ -76,6 +98,7 @@ fun NutritionScreen(vm: NutritionViewModel = hiltViewModel()) {
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Nutrição", fontWeight = FontWeight.Bold) },
@@ -124,13 +147,13 @@ fun NutritionScreen(vm: NutritionViewModel = hiltViewModel()) {
 
             // Meal sections
             MealType.values().forEach { meal ->
-                val logs = logsByMeal[meal] ?: emptyList()
+                val logs = (logsByMeal[meal] ?: emptyList()).filterNot { it.id in pendingDeleteIds }
                 item {
                     MealSection(
                         mealType = meal,
                         logs     = logs,
                         onAdd    = { activeMealType = meal; showAddFood = true },
-                        onDelete = vm::deleteFoodLog
+                        onDelete = ::requestDeleteFoodLog
                     )
                 }
             }
@@ -532,6 +555,7 @@ private fun GoalSettingsDialog(profile: UserProfile, onDismiss: () -> Unit, onSa
     var carbs    by remember { mutableStateOf(profile.goalCarbs.toString()) }
     var fat      by remember { mutableStateOf(profile.goalFat.toString()) }
     var fiber    by remember { mutableStateOf(profile.goalFiber.toString()) }
+    var weeklyGoal by remember { mutableStateOf(profile.weeklyGoal.toString()) }
     var name     by remember { mutableStateOf(profile.name) }
     var weight   by remember { mutableStateOf(profile.weightKg.toString()) }
 
@@ -547,6 +571,7 @@ private fun GoalSettingsDialog(profile: UserProfile, onDismiss: () -> Unit, onSa
                 GoalField("Hidratos (g)", carbs) { carbs = it }
                 GoalField("Gordura (g)", fat) { fat = it }
                 GoalField("Fibra (g)", fiber) { fiber = it }
+                GoalField("Meta de treinos/semana", weeklyGoal) { weeklyGoal = it }
             }
         },
         confirmButton = {
@@ -558,7 +583,8 @@ private fun GoalSettingsDialog(profile: UserProfile, onDismiss: () -> Unit, onSa
                     goalProtein  = protein.toIntOrNull()  ?: profile.goalProtein,
                     goalCarbs    = carbs.toIntOrNull()    ?: profile.goalCarbs,
                     goalFat      = fat.toIntOrNull()      ?: profile.goalFat,
-                    goalFiber    = fiber.toIntOrNull()    ?: profile.goalFiber
+                    goalFiber    = fiber.toIntOrNull()    ?: profile.goalFiber,
+                    weeklyGoal   = weeklyGoal.toIntOrNull()?.coerceIn(1, 14) ?: profile.weeklyGoal
                 ))
             }) { Text("Guardar") }
         },

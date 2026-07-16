@@ -21,9 +21,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.fittrack.presentation.screens.analytics.AnalyticsScreen
 import com.fittrack.presentation.screens.exercise.ExerciseBrowserScreen
+import com.fittrack.presentation.screens.history.ExerciseHistoryScreen
 import com.fittrack.presentation.screens.home.HomeScreen
 import com.fittrack.presentation.screens.nutrition.NutritionScreen
 import com.fittrack.presentation.screens.workout.*
+import java.net.URLEncoder
 
 sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
     object Home      : Screen("home",      "Home",    Icons.Filled.Home)
@@ -46,13 +48,16 @@ object Routes {
     // Standalone screens
     const val WORKOUT_DETAIL  = "workout_detail/{workoutId}"
     const val ACTIVE_WORKOUT  = "active_workout/{workoutId}"
+    const val EXERCISE_HISTORY = "exercise_history/{exerciseId}/{exerciseName}"
 
     fun createWorkout(workoutId: Long? = null) =
-        if (workoutId != null) "workout_flow/create_workout_form?workoutId=$workoutId"
+        if (workoutId != null) "create_workout_form?workoutId=$workoutId"
         else "workout_flow"
 
     fun workoutDetail(workoutId: Long) = "workout_detail/$workoutId"
     fun activeWorkout(workoutId: Long) = "active_workout/$workoutId"
+    fun exerciseHistory(exerciseId: String, exerciseName: String) =
+        "exercise_history/$exerciseId/${URLEncoder.encode(exerciseName, "UTF-8")}"
 }
 
 val bottomNavItems = listOf(Screen.Home, Screen.Workout, Screen.Nutrition, Screen.Analytics)
@@ -164,8 +169,13 @@ fun AppNavigation() {
                 WorkoutDetailScreen(
                     workoutId      = workoutId,
                     onNavigateBack = { navController.popBackStack() },
-                    onEditWorkout  = { navController.navigate("workout_flow?workoutId=$workoutId") },
-                    onStartWorkout = { navController.navigate(Routes.activeWorkout(workoutId)) }
+                    onEditWorkout  = { navController.navigate(Routes.createWorkout(workoutId)) },
+                    onStartWorkout = { navController.navigate(Routes.activeWorkout(workoutId)) },
+                    onWorkoutDuplicated = { newId ->
+                        navController.navigate(Routes.workoutDetail(newId)) {
+                            popUpTo(Routes.WORKOUT)
+                        }
+                    }
                 )
             }
 
@@ -184,8 +194,24 @@ fun AppNavigation() {
                 )
             }
 
+            composable(
+                route = Routes.EXERCISE_HISTORY,
+                arguments = listOf(
+                    navArgument("exerciseId") { type = NavType.StringType },
+                    navArgument("exerciseName") { type = NavType.StringType }
+                )
+            ) {
+                ExerciseHistoryScreen(onNavigateBack = { navController.popBackStack() })
+            }
+
             composable(Routes.NUTRITION) { NutritionScreen() }
-            composable(Routes.ANALYTICS) { AnalyticsScreen() }
+            composable(Routes.ANALYTICS) {
+                AnalyticsScreen(
+                    onExerciseClick = { exerciseId, exerciseName ->
+                        navController.navigate(Routes.exerciseHistory(exerciseId, exerciseName))
+                    }
+                )
+            }
         }
     }
 }

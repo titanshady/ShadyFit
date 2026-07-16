@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
+import java.time.temporal.WeekFields
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,7 +22,8 @@ class WorkoutRepository @Inject constructor(
     private val workoutDao: WorkoutDao,
     private val workoutExerciseDao: WorkoutExerciseDao,
     private val exerciseSetDao: ExerciseSetDao,
-    private val personalRecordDao: PersonalRecordDao
+    private val personalRecordDao: PersonalRecordDao,
+    private val analyticsDao: AnalyticsDao
 ) {
     fun getAllWorkouts(): Flow<List<Workout>> =
         workoutDao.getAllWorkouts().map { list -> list.map { it.toDomain() } }
@@ -55,7 +59,8 @@ class WorkoutRepository @Inject constructor(
                 bodyPart = we.bodyPart,
                 targetMuscle = we.targetMuscle,
                 gifUrl = "",
-                order = index
+                order = index,
+                notes = we.notes
             )
             val exerciseId = workoutExerciseDao.insertExercise(exerciseEntity)
             val sets = we.sets.map { set ->
@@ -65,33 +70,81 @@ class WorkoutRepository @Inject constructor(
                     reps = set.reps,
                     weightKg = set.weightKg,
                     completed = set.completed,
-                    restSeconds = set.restSeconds
+                    restSeconds = set.restSeconds,
+                    rpe = set.rpe
                 )
             }
             exerciseSetDao.insertSets(sets)
 
             // Update personal records
             sets.filter { it.completed }.forEach { set ->
-                val current = personalRecordDao.getMaxWeightForExercise(we.exerciseId) ?: 0f
-                if (set.weightKg > current) {
-                    personalRecordDao.upsertRecord(
-                        PersonalRecordEntity(
-                            exerciseId = we.exerciseId,
-                            exerciseName = we.exerciseName,
-                            maxWeightKg = set.weightKg,
-                            repsAtMax = set.reps,
-                            date = LocalDate.now()
-                        )
-                    )
-                }
+                updatePersonalRecordIfNeeded(we.exerciseId, we.exerciseName, set.weightKg, set.reps)
             }
         }
         return workoutId
     }
 
-    suspend fun completeWorkout(workoutId: Long, durationMinutes: Int) {
-        val workout = workoutDao.getWorkoutById(workoutId)?.workout ?: return
+    /** Upserts a new personal record if `weightKg` beats the current max for this exercise.
+     *  Returns true if a new record was actually set — used to trigger PR celebrations in the UI. */
+    private suspend fun updatePersonalRecordIfNeeded(
+        exerciseId: String, exerciseName: String, weightKg: Float, reps: Int
+    ): Boolean {
+        val current = personalRecordDao.getMaxWeightForExercise(exerciseId) ?: 0f
+        if (weightKg > current) {
+            personalRecordDao.upsertRecord(
+                PersonalRecordEntity(
+                    exerciseId = exerciseId,
+                    exerciseName = exerciseName,
+                    maxWeightKg = weightKg,
+                    repsAtMax = reps,
+                    date = LocalDate.now()
+                )
+            )
+            return true
+        }
+        return false
+    }
+
+    // -- Persist the actual logged session (sets, notes, RPE) when a workout finishes.
+    // Previously this only flipped `isCompleted`/`durationMinutes`, silently discarding
+    // everything entered in ActiveWorkoutScreen (reps, weights, completed sets, RPE, PRs).
+    // Returns true if at least one new personal record was achieved during this session.
+    suspend fun completeWorkout(workoutId: Long, durationMinutes: Int, exercises: List<WorkoutExercise>): Boolean {
+        val workout = workoutDao.getWorkoutById(workoutId)?.workout ?: return false
         workoutDao.updateWorkout(workout.copy(isCompleted = true, durationMinutes = durationMinutes))
+
+        val existingExercises = workoutExerciseDao.getExercisesForWorkout(workoutId)
+        var achievedPr = false
+
+        exercises.forEachIndexed { index, we ->
+            val entity = existingExercises.getOrNull(index) ?: return@forEachIndexed
+
+            if (entity.notes != we.notes) {
+                workoutExerciseDao.updateExercise(entity.copy(notes = we.notes))
+            }
+
+            // Replace with what was actually logged during the session
+            exerciseSetDao.deleteAllForExercise(entity.id)
+            val setEntities = we.sets.map { set ->
+                ExerciseSetEntity(
+                    workoutExerciseId = entity.id,
+                    setNumber = set.setNumber,
+                    reps = set.reps,
+                    weightKg = set.weightKg,
+                    completed = set.completed,
+                    restSeconds = set.restSeconds,
+                    rpe = set.rpe
+                )
+            }
+            exerciseSetDao.insertSets(setEntities)
+
+            setEntities.filter { it.completed }.forEach { set ->
+                if (updatePersonalRecordIfNeeded(we.exerciseId, we.exerciseName, set.weightKg, set.reps)) {
+                    achievedPr = true
+                }
+            }
+        }
+        return achievedPr
     }
 
     suspend fun deleteWorkout(workoutId: Long) {
@@ -99,44 +152,179 @@ class WorkoutRepository @Inject constructor(
         workoutDao.deleteWorkout(workout)
     }
 
+    // -- Roadmap 2.1: duplicate a saved workout as a brand-new template ----------
+    suspend fun duplicateWorkout(workoutId: Long): Long? {
+        val original = workoutDao.getWorkoutById(workoutId)?.toDomain() ?: return null
+        val copy = original.copy(
+            id = 0L,
+            name = "${original.name} (cópia)",
+            date = LocalDateTime.now(),
+            durationMinutes = 0,
+            exercises = original.exercises.map { ex ->
+                ex.copy(sets = ex.sets.map { it.copy(completed = false) })
+            }
+        )
+        return saveWorkout(copy)
+    }
+
+    // -- Roadmap 2.2: quick rename without reopening the full editor ------------
+    suspend fun renameWorkout(workoutId: Long, newName: String) {
+        val workout = workoutDao.getWorkoutById(workoutId)?.workout ?: return
+        workoutDao.updateWorkout(workout.copy(name = newName))
+    }
+
     fun getPersonalRecords(): Flow<List<PersonalRecordEntity>> =
         personalRecordDao.getAllRecords()
 
     fun getProgressForExercise(exerciseId: String): Flow<List<PersonalRecordEntity>> =
         personalRecordDao.getProgressForExercise(exerciseId)
+
+    // -- Roadmap 3.1: full history for a single exercise -------------------------
+    fun getExerciseHistory(exerciseId: String): Flow<List<ExerciseHistoryRow>> =
+        analyticsDao.getExerciseHistory(exerciseId)
+
+    // -- Roadmap 1.3: "última vez" shown during an active workout ----------------
+    suspend fun getLastSession(exerciseId: String, excludeWorkoutId: Long): List<ExerciseSet> =
+        exerciseSetDao.getLastSessionSets(exerciseId, excludeWorkoutId).map { it.toDomain() }
+
+    // -- Roadmap 5.1 / 5.2: streak + weekly frequency, computed client-side ------
+    fun getStreakInfo(weeklyGoal: Int): Flow<StreakInfo> =
+        workoutDao.getAllCompletedWorkoutDates().map { dates ->
+            computeStreak(dates.map { it.toLocalDate() }, weeklyGoal)
+        }
+
+    // -- Roadmap 3.4 / 3.5: volume grouped by ISO week, for charts + comparisons -
+    fun getWeeklyVolume(): Flow<List<Pair<String, Float>>> =
+        analyticsDao.getAllVolumeOverTime().map { points -> groupVolumeByWeek(points) }
+
+    fun getAverageDurationMinutes(): Flow<Float?> = workoutDao.getAverageDurationMinutes()
+}
+
+private fun computeStreak(datesDesc: List<LocalDate>, weeklyGoal: Int): StreakInfo {
+    if (datesDesc.isEmpty()) return StreakInfo(0, 0, weeklyGoal)
+    val distinctDays = datesDesc.distinct().sortedDescending()
+
+    // Current streak: consecutive calendar days ending today or yesterday
+    var streak = 0
+    var cursor = LocalDate.now()
+    if (distinctDays.first() == cursor || distinctDays.first() == cursor.minusDays(1)) {
+        cursor = distinctDays.first()
+        for (day in distinctDays) {
+            if (day == cursor) {
+                streak++
+                cursor = cursor.minusDays(1)
+            } else if (day.isBefore(cursor)) {
+                break
+            }
+        }
+    }
+
+    val weekFields = WeekFields.of(Locale.getDefault())
+    val today = LocalDate.now()
+    val thisWeekCount = distinctDays.count {
+        it.get(weekFields.weekOfWeekBasedYear()) == today.get(weekFields.weekOfWeekBasedYear()) &&
+            it.get(weekFields.weekBasedYear()) == today.get(weekFields.weekBasedYear())
+    }
+
+    return StreakInfo(currentStreakDays = streak, workoutsThisWeek = thisWeekCount, weeklyGoal = weeklyGoal)
+}
+
+private fun groupVolumeByWeek(points: List<VolumePoint>): List<Pair<String, Float>> {
+    val weekFields = WeekFields.of(Locale.getDefault())
+    return points
+        .groupBy { p ->
+            val d = p.date.toLocalDate()
+            "${d.get(weekFields.weekBasedYear())}-W${d.get(weekFields.weekOfWeekBasedYear())}"
+        }
+        .toSortedMap()
+        .map { (week, pts) -> week to pts.sumOf { it.totalVolume.toDouble() }.toFloat() }
 }
 
 // --- Exercise Repository ------------------------------------------------------
 
 @Singleton
 class ExerciseRepository @Inject constructor(
-    private val exerciseApi: ExerciseApiService
+    private val exerciseApi: ExerciseApiService,
+    private val cachedExerciseDao: CachedExerciseDao,
+    private val favoriteExerciseDao: FavoriteExerciseDao
 ) {
-    private val cache = mutableMapOf<String, List<Exercise>>()
+    // Free ExerciseDB plan allows only 10 requests/day — a cache that survives process death
+    // is close to mandatory (roadmap item 7.5). 24h is generous enough that a normal day of
+    // use won't re-hit the API, while still refreshing periodically.
+    private val cacheTtlHours = 24L
 
     suspend fun getExercises(bodyPart: String? = null, offset: Int = 0): Result<List<Exercise>> =
         runCatching {
-            val cacheKey = "${bodyPart}_$offset"
-            cache[cacheKey]?.let { return Result.success(it) }
+            val cacheKey = "list_${bodyPart}_$offset"
+            readCache(cacheKey)?.let { return Result.success(it) }
+
             val dtos = if (bodyPart != null)
                 exerciseApi.getExercisesByBodyPart(bodyPart, offset = offset)
             else
                 exerciseApi.getAllExercises(offset = offset)
             val exercises = dtos.map { it.toDomain() }
-            cache[cacheKey] = exercises
+            writeCache(cacheKey, exercises)
             exercises
         }
 
     suspend fun searchExercises(query: String): Result<List<Exercise>> =
         runCatching {
-            exerciseApi.searchExercises(query).map { it.toDomain() }
+            val cacheKey = "search_${query.lowercase()}"
+            readCache(cacheKey)?.let { return Result.success(it) }
+            val exercises = exerciseApi.searchExercises(query).map { it.toDomain() }
+            writeCache(cacheKey, exercises)
+            exercises
         }
 
     suspend fun getExerciseById(id: String): Result<Exercise> =
-        runCatching { exerciseApi.getExerciseById(id).toDomain() }
+        runCatching {
+            cachedExerciseDao.getExerciseById(id)?.toDomain()
+                ?: exerciseApi.getExerciseById(id).toDomain().also { writeCache("single_$id", listOf(it)) }
+        }
 
     suspend fun getBodyParts(): Result<List<String>> =
         runCatching { exerciseApi.getBodyPartList() }
+
+    private suspend fun readCache(key: String): List<Exercise>? {
+        val query = cachedExerciseDao.getQuery(key) ?: return null
+        val ageHours = ChronoUnit.HOURS.between(query.cachedAt, LocalDateTime.now())
+        if (ageHours >= cacheTtlHours) return null
+        val cachedExercises = cachedExerciseDao.getExercisesByIds(query.exerciseIds)
+            .associateBy { it.exerciseId }
+        // Preserve original order; if any id is missing (shouldn't normally happen) treat as a miss.
+        val ordered = query.exerciseIds.mapNotNull { cachedExercises[it] }
+        if (ordered.size != query.exerciseIds.size) return null
+        return ordered.map { it.toDomain() }
+    }
+
+    private suspend fun writeCache(key: String, exercises: List<Exercise>) {
+        if (exercises.isEmpty()) return
+        val now = LocalDateTime.now()
+        cachedExerciseDao.upsertExercises(exercises.map { it.toCachedEntity(now) })
+        cachedExerciseDao.upsertQuery(
+            CachedExerciseQueryEntity(queryKey = key, exerciseIds = exercises.map { it.id }, cachedAt = now)
+        )
+    }
+
+    // -- Roadmap 7.1: favorites --------------------------------------------------
+    fun getFavorites(): Flow<List<FavoriteExerciseEntity>> = favoriteExerciseDao.getAllFavorites()
+
+    fun isFavorite(exerciseId: String): Flow<Boolean> = favoriteExerciseDao.isFavorite(exerciseId)
+
+    suspend fun toggleFavorite(exercise: Exercise, currentlyFavorite: Boolean) {
+        if (currentlyFavorite) {
+            favoriteExerciseDao.removeFavorite(exercise.id)
+        } else {
+            favoriteExerciseDao.addFavorite(
+                FavoriteExerciseEntity(
+                    exerciseId = exercise.id,
+                    exerciseName = exercise.name,
+                    bodyPart = exercise.bodyPart,
+                    addedAt = LocalDateTime.now()
+                )
+            )
+        }
+    }
 
     // Fallback local data when API key not configured
     fun getLocalExercises(): List<Exercise> = listOf(
@@ -275,7 +463,8 @@ private fun WorkoutExerciseWithSets.toDomain() = WorkoutExercise(
     bodyPart = workoutExercise.bodyPart,
     targetMuscle = workoutExercise.targetMuscle,
     order = workoutExercise.order,
-    sets = sets.map { it.toDomain() }
+    sets = sets.map { it.toDomain() },
+    notes = workoutExercise.notes
 )
 
 private fun ExerciseSetEntity.toDomain() = ExerciseSet(
@@ -285,7 +474,8 @@ private fun ExerciseSetEntity.toDomain() = ExerciseSet(
     reps = reps,
     weightKg = weightKg,
     completed = completed,
-    restSeconds = restSeconds
+    restSeconds = restSeconds,
+    rpe = rpe
 )
 
 private fun FoodLogEntity.toDomain() = FoodLog(
@@ -319,11 +509,23 @@ private fun FoodLog.toEntity() = FoodLogEntity(
 private fun UserProfileEntity.toDomain() = UserProfile(
     id = id, name = name, weightKg = weightKg, heightCm = heightCm,
     age = age, gender = gender, goalCalories = goalCalories,
-    goalProtein = goalProtein, goalCarbs = goalCarbs, goalFat = goalFat, goalFiber = goalFiber
+    goalProtein = goalProtein, goalCarbs = goalCarbs, goalFat = goalFat, goalFiber = goalFiber,
+    weeklyGoal = weeklyGoal
 )
 
 private fun UserProfile.toEntity() = UserProfileEntity(
     id = id, name = name, weightKg = weightKg, heightCm = heightCm,
     age = age, gender = gender, goalCalories = goalCalories,
-    goalProtein = goalProtein, goalCarbs = goalCarbs, goalFat = goalFat, goalFiber = goalFiber
+    goalProtein = goalProtein, goalCarbs = goalCarbs, goalFat = goalFat, goalFiber = goalFiber,
+    weeklyGoal = weeklyGoal
+)
+
+private fun CachedExerciseEntity.toDomain() = Exercise(
+    id = exerciseId, name = name, bodyPart = bodyPart, equipment = equipment, target = target,
+    secondaryMuscles = secondaryMuscles, gifUrl = gifUrl, instructions = instructions
+)
+
+private fun Exercise.toCachedEntity(cachedAt: LocalDateTime) = CachedExerciseEntity(
+    exerciseId = id, name = name, bodyPart = bodyPart, equipment = equipment, target = target,
+    secondaryMuscles = secondaryMuscles, gifUrl = gifUrl, instructions = instructions, cachedAt = cachedAt
 )

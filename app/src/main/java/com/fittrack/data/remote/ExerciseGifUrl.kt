@@ -18,7 +18,7 @@ import com.fittrack.BuildConfig
  * acesso a 180px; pedir uma resolução maior do que o plano permite não dá erro,
  * a API simplesmente devolve a maior resolução disponível no plano.
  */
-fun exerciseGifUrl(exerciseId: String, resolution: Int = 360): String {
+fun exerciseGifUrl(exerciseId: String, resolution: Int = 180): String {
     if (exerciseId.isBlank() || BuildConfig.EXERCISEDB_API_KEY.isBlank()) return ""
     return "https://exercisedb.p.rapidapi.com/image" +
         "?exerciseId=$exerciseId" +
