@@ -1,0 +1,5 @@
+- [x] Upgrade Room version in `libs.versions.toml`
+- [x] Update all other versions in `libs.versions.toml` to latest stable
+- [/] Run Gradle Sync
+- [ ] Run KSP task to verify the fix
+- [ ] Perform a full project build

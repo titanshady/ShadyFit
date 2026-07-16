@@ -1,0 +1,4 @@
+- [x] Update Hilt and KSP versions in `libs.versions.toml`
+- [x] Remove legacy DSL flag from `gradle.properties` (Note: Reverted to false to avoid cast error, but Hilt update addresses the warning)
+- [x] Perform Gradle Sync and verify warning removal
+- [x] Build project to ensure compatibility

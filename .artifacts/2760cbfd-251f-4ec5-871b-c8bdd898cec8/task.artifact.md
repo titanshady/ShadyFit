@@ -1,0 +1,6 @@
+- [x] Update Vico version in `libs.versions.toml`
+- [x] Sync Gradle
+- [x] Verify build (Sync successful)
+- [x] Update compileSdk and targetSdk to 37
+- [x] Sync Gradle
+- [x] Verify build (:app:assembleDebug)

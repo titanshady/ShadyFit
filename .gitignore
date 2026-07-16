@@ -1,0 +1,49 @@
+# -- Local secrets --------------------------------------
+local.properties
+
+# -- Android build outputs ----------------------------------------------------
+*.apk
+*.aab
+*.ap_
+*.dex
+bin/
+build/
+gen/
+out/
+
+# -- Gradle -------------------------------------------------------------------
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+.gradletasknamecache
+
+# -- Android Studio / IntelliJ ------------------------------------------------
+*.iml
+.idea/
+*.iws
+*.ipr
+.idea/shelf/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/gradle.xml
+.idea/assetWizardSettings.xml
+.idea/dictionaries
+.idea/libraries
+.idea/caches
+.idea/modules.xml
+captures/
+
+# -- OS generated -------------------------------------------------------------
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -- Keystore files -------------------------------
+*.jks
+*.keystore
+
+# -- Logs & temp --------------------------------------------------------------
+*.log
+tmp/
