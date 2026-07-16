@@ -32,9 +32,10 @@ class ExerciseViewModel @Inject constructor(
     private val _selectedExercise = MutableStateFlow<Exercise?>(null)
     val selectedExercise: StateFlow<Exercise?> = _selectedExercise
 
-    // -- Wger sync (replaces ExerciseDB) ------------------------------------------
-    // The whole library is downloaded once (metadata + demo photos) and stored locally —
-    // after that, everything below reads straight from Room, no network involved.
+    // -- Wger sync (metadata only, images are lazy-loaded) ----------------
+    // The library metadata is downloaded once and stored locally.
+    // Images are fetched on-demand when the user clicks an exercise (lazy loading).
+    // After that, everything reads straight from Room, no network involved.
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing
 
@@ -45,6 +46,10 @@ class ExerciseViewModel @Inject constructor(
     // synced, so the library is empty" from "synced already, just showing what's there".
     private val _hasSyncedLibrary = MutableStateFlow(true)
     val hasSyncedLibrary: StateFlow<Boolean> = _hasSyncedLibrary
+
+    // -- Image downloading (lazy loading on click) -------------------------
+    private val _isDownloadingImage = MutableStateFlow(false)
+    val isDownloadingImage: StateFlow<Boolean> = _isDownloadingImage
 
     // -- Favorites (roadmap 7.1) -------------------------------------------------
     private val _showFavoritesOnly = MutableStateFlow(false)
@@ -79,7 +84,9 @@ class ExerciseViewModel @Inject constructor(
         }
     }
 
-    /** Downloads (or re-downloads) the full Portuguese exercise library from Wger. */
+    /** Downloads (or re-downloads) the full Portuguese exercise library from Wger.
+     *  LAZY LOADING: Images are NOT downloaded here — only metadata.
+     *  Images are fetched on-demand in downloadExerciseImage() when user clicks. */
     fun syncLibrary() {
         if (_isSyncing.value) return
         viewModelScope.launch {
@@ -134,4 +141,27 @@ class ExerciseViewModel @Inject constructor(
 
     fun selectExercise(exercise: Exercise) { _selectedExercise.value = exercise }
     fun clearSelection() { _selectedExercise.value = null }
+
+    // -- Lazy image loading (called when user opens detail sheet) ----------
+    /** Download exercise image on-demand. Called when ExerciseDetailSheet opens.
+     *  If image is already cached, returns immediately (no network).
+     *  Otherwise fetches from Wger and saves locally. */
+    fun downloadExerciseImageIfNeeded(exerciseId: String) {
+        viewModelScope.launch {
+            _isDownloadingImage.value = true
+            repository.downloadExerciseImage(exerciseId)
+                .onSuccess { wasDownloaded ->
+                    if (wasDownloaded) {
+                        // Reload exercise from DB to get updated gifUrl with local path
+                        repository.getExerciseById(exerciseId).onSuccess { updated ->
+                            _selectedExercise.value = updated
+                        }
+                    }
+                }
+                .onFailure { e ->
+                    _error.value = "Não foi possível carregar a imagem: ${e.message ?: e.javaClass.simpleName}"
+                }
+            _isDownloadingImage.value = false
+        }
+    }
 }
