@@ -140,8 +140,14 @@ data class FavoriteExerciseEntity(
 
 // --- Exercise library (Room-backed, permanent local copy synced from Wger) ----
 // Roadmap: replaces the old time-limited cache — see ExerciseRepository for the sync flow.
-// Same shape as before so favorites/history that reference an exerciseId keep working;
-// only the meaning changed (gifUrl is now a local "file://" path, not a remote URL).
+// Same shape as before so favorites/history that reference an exerciseId keep working.
+// 
+// LAZY LOADING STRATEGY:
+// - During syncAllExercisesFromWger(): save only metadata (name, instructions, gifUrl = "")
+// - hasImage = false initially
+// - When user clicks an exercise: downloadExerciseImage() fetches the GIF lazily
+// - After download: gifUrl = "file://..." and hasImage = true (persisted in DB)
+// - Subsequent searches return the cached image (no re-download)
 
 @Entity(tableName = "cached_exercises")
 data class CachedExerciseEntity(
@@ -151,9 +157,10 @@ data class CachedExerciseEntity(
     val equipment: String,
     val target: String,
     val secondaryMuscles: List<String> = emptyList(),
-    val gifUrl: String = "",
+    val gifUrl: String = "",                    // "file://..." once downloaded, "" until then
     val instructions: List<String> = emptyList(),
-    val cachedAt: LocalDateTime
+    val cachedAt: LocalDateTime,
+    val hasImage: Boolean = false               // true = image is locally cached
 )
 
 // --- Relation helpers ---------------------------------------------------------
