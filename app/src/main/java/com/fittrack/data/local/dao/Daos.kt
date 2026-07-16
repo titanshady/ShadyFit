@@ -186,6 +186,12 @@ interface FavoriteExerciseDao {
 // Roadmap: permanent local exercise library synced from Wger — see ExerciseRepository.
 // syncAllExercisesFromWger(). No longer a time-limited cache (hence no more "queries" table
 // keyed by request params): once synced, every read here is a plain offline Room query.
+//
+// LAZY LOADING:
+// - Sync stores only metadata (hasImage = false, gifUrl = "")
+// - Search/filter returns exercises without images (fast, no network)
+// - When user clicks: downloadExerciseImage() fetches GIF lazily
+// - After download: hasImage = true, gifUrl = "file://..." (persisted)
 @Dao
 interface CachedExerciseDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -212,6 +218,20 @@ interface CachedExerciseDao {
 
     @Query("SELECT COUNT(*) FROM cached_exercises")
     suspend fun count(): Int
+
+    // --- Lazy loading support ---
+
+    /** Update exercise with downloaded image info. Called after imageDownloader.download() succeeds. */
+    @Query("UPDATE cached_exercises SET gifUrl = :localImagePath, hasImage = 1 WHERE exerciseId = :exerciseId")
+    suspend fun markImageDownloaded(exerciseId: String, localImagePath: String)
+
+    /** Check if a specific exercise's image is already cached locally. */
+    @Query("SELECT hasImage FROM cached_exercises WHERE exerciseId = :exerciseId")
+    suspend fun hasImageCached(exerciseId: String): Boolean
+
+    /** Get all exercises whose images haven't been downloaded yet (useful for preload strategies). */
+    @Query("SELECT * FROM cached_exercises WHERE hasImage = 0 ORDER BY name ASC")
+    suspend fun getExercisesWithoutImages(): List<CachedExerciseEntity>
 }
 
 // --- Analytics helpers -------------------------------------------------------
