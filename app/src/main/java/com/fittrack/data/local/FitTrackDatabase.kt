@@ -15,10 +15,9 @@ import com.fittrack.data.local.entity.*
         UserProfileEntity::class,
         PersonalRecordEntity::class,
         FavoriteExerciseEntity::class,
-        CachedExerciseEntity::class,
-        CachedExerciseQueryEntity::class
+        CachedExerciseEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

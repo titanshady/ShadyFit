@@ -63,4 +63,15 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2)
+// Roadmap: swapping ExerciseDB for a permanent local Wger sync (see ExerciseRepository).
+// cached_exercises stays exactly as it was — same columns, now just permanent instead of
+// TTL'd — but cached_exercise_queries (the old "which ids came back for this search" table)
+// is no longer needed at all, since every read is now a plain offline query against
+// cached_exercises directly.
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS cached_exercise_queries")
+    }
+}
+
+val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)

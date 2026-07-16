@@ -1,34 +1,7 @@
 package com.fittrack.data.remote.dto
 
 import com.google.gson.annotations.SerializedName
-import com.fittrack.data.remote.exerciseGifUrl
-import com.fittrack.domain.model.Exercise
 import com.fittrack.domain.model.FoodItem
-
-// --- Exercise DTO -------------------------------------------------------------
-
-data class ExerciseDto(
-    @SerializedName("id")               val id: String = "",
-    @SerializedName("name")             val name: String = "",
-    @SerializedName("bodyPart")         val bodyPart: String = "",
-    @SerializedName("equipment")        val equipment: String = "",
-    @SerializedName("target")          val target: String = "",
-    @SerializedName("secondaryMuscles") val secondaryMuscles: List<String> = emptyList(),
-    @SerializedName("instructions")     val instructions: List<String> = emptyList()
-) {
-    // A API já não devolve "gifUrl" no JSON dos endpoints de listagem/pesquisa —
-    // o GIF tem de ser montado à parte a partir do id (ver ExerciseGifUrl.kt).
-    fun toDomain() = Exercise(
-        id               = id,
-        name             = name.replaceFirstChar { it.uppercase() },
-        bodyPart         = bodyPart,
-        equipment        = equipment,
-        target           = target,
-        secondaryMuscles = secondaryMuscles,
-        gifUrl           = exerciseGifUrl(id),
-        instructions     = instructions
-    )
-}
 
 // --- Food DTOs ----------------------------------------------------------------
 

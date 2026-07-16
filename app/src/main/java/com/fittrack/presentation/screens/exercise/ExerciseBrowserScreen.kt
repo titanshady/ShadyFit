@@ -36,7 +36,8 @@ fun ExerciseBrowserScreen(
     exerciseVm: ExerciseViewModel = hiltViewModel()   // scoped to this screen only
 ) {
     val exercises by exerciseVm.filteredExercises.collectAsState()
-    val isLoading by exerciseVm.isLoading.collectAsState()
+    val isSyncing by exerciseVm.isSyncing.collectAsState()
+    val syncProgress by exerciseVm.syncProgress.collectAsState()
     val error by exerciseVm.error.collectAsState()
     val bodyParts by exerciseVm.bodyParts.collectAsState()
     val selectedBodyPart by exerciseVm.selectedBodyPart.collectAsState()
@@ -65,6 +66,13 @@ fun ExerciseBrowserScreen(
                 title = { Text("Biblioteca de Exercícios", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) { Icon(Icons.Filled.ArrowBack, null) }
+                },
+                actions = {
+                    // Manual re-sync — the library is otherwise fully offline after the
+                    // first download, so this is the only way to pick up new Wger exercises.
+                    IconButton(onClick = { exerciseVm.syncLibrary() }, enabled = !isSyncing) {
+                        Icon(Icons.Filled.Refresh, "Atualizar biblioteca")
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
@@ -142,16 +150,33 @@ fun ExerciseBrowserScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
-            if (isLoading && exercises.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Primary)
-                        Spacer(Modifier.height(12.dp))
-                        Text("A carregar exercícios...", style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (isSyncing && syncProgress.second > 0) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    color = Primary.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(Modifier.padding(10.dp)) {
+                        Text(
+                            "A transferir biblioteca de exercícios: ${syncProgress.first} / ${syncProgress.second}",
+                            style = MaterialTheme.typography.labelMedium, color = Primary
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { if (syncProgress.second > 0) syncProgress.first.toFloat() / syncProgress.second else 0f },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = Primary
+                        )
                     }
                 }
-            } else if (showFavoritesOnly && exercises.isEmpty()) {
+                Spacer(Modifier.height(8.dp))
+            } else if (isSyncing) {
+                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Primary, modifier = Modifier.size(20.dp))
+                }
+            }
+
+            if (showFavoritesOnly && exercises.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Filled.StarBorder, null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(56.dp))
@@ -174,13 +199,6 @@ fun ExerciseBrowserScreen(
                             onClick = { exerciseVm.selectExercise(exercise) },
                             onToggleFavorite = { exerciseVm.toggleFavorite(exercise) }
                         )
-                    }
-                    if (isLoading) {
-                        item {
-                            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = Primary, modifier = Modifier.size(28.dp))
-                            }
-                        }
                     }
                     item { Spacer(Modifier.height(80.dp)) }
                 }

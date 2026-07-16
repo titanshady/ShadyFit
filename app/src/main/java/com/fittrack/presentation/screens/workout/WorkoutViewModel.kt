@@ -121,6 +121,7 @@ class WorkoutViewModel @Inject constructor(
             exerciseName  = exercise.name,
             bodyPart      = exercise.bodyPart,
             targetMuscle  = exercise.target,
+            gifUrl        = exercise.gifUrl,
             order         = _exercises.value.size,
             sets          = listOf(ExerciseSet(setNumber = 1, reps = 10, weightKg = 20f))
         )

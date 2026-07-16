@@ -17,9 +17,6 @@ class ExerciseViewModel @Inject constructor(
     private val _exercises = MutableStateFlow<List<Exercise>>(emptyList())
     val exercises: StateFlow<List<Exercise>> = _exercises
 
-    private val _isLoading = MutableStateFlow(false)
-    val isLoading: StateFlow<Boolean> = _isLoading
-
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
@@ -34,6 +31,20 @@ class ExerciseViewModel @Inject constructor(
 
     private val _selectedExercise = MutableStateFlow<Exercise?>(null)
     val selectedExercise: StateFlow<Exercise?> = _selectedExercise
+
+    // -- Wger sync (replaces ExerciseDB) ------------------------------------------
+    // The whole library is downloaded once (metadata + demo photos) and stored locally —
+    // after that, everything below reads straight from Room, no network involved.
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing
+
+    private val _syncProgress = MutableStateFlow(0 to 0) // (processed, total)
+    val syncProgress: StateFlow<Pair<Int, Int>> = _syncProgress
+
+    // Only meaningfully different from _isSyncing at startup: distinguishes "we've never
+    // synced, so the library is empty" from "synced already, just showing what's there".
+    private val _hasSyncedLibrary = MutableStateFlow(true)
+    val hasSyncedLibrary: StateFlow<Boolean> = _hasSyncedLibrary
 
     // -- Favorites (roadmap 7.1) -------------------------------------------------
     private val _showFavoritesOnly = MutableStateFlow(false)
@@ -56,57 +67,48 @@ class ExerciseViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
-        // Always load local exercises immediately so the list is never empty
-        _exercises.value = repository.getLocalExercises()
-        loadBodyParts()
-        loadExercisesFromApi()
+        viewModelScope.launch {
+            // Always keep the built-in catalog up to date first (cheap, idempotent — see
+            // seedLocalLibraryIfEmpty) so search/filter never come up empty, even for people
+            // who already had an older/smaller version of this fallback list stored.
+            repository.seedLocalLibraryIfEmpty()
+            val synced = repository.hasSyncedLibrary()
+            _hasSyncedLibrary.value = synced
+            loadFromLocalLibrary()
+            if (!synced) syncLibrary()
+        }
     }
 
-    private fun loadExercisesFromApi(bodyPart: String? = null, offset: Int = 0) {
+    /** Downloads (or re-downloads) the full Portuguese exercise library from Wger. */
+    fun syncLibrary() {
+        if (_isSyncing.value) return
         viewModelScope.launch {
-            _isLoading.value = true
+            _isSyncing.value = true
             _error.value = null
-            repository.getExercises(bodyPart, offset)
-                .onSuccess { list ->
-                    if (list.isNotEmpty()) {
-                        _exercises.value = if (offset == 0) list else _exercises.value + list
-                        _error.value = null
-                    }
+            _syncProgress.value = 0 to 0
+            repository.syncAllExercisesFromWger { processed, total -> _syncProgress.value = processed to total }
+                .onSuccess {
+                    _hasSyncedLibrary.value = true
+                    loadFromLocalLibrary()
                 }
-                .onFailure { error ->
-                    // Show the real error so we can diagnose it
-                    _error.value = "Erro API: ${error.message ?: error.javaClass.simpleName}"
+                .onFailure { e ->
+                    _error.value = "Não foi possível transferir a biblioteca: ${e.message ?: e.javaClass.simpleName}"
                 }
-            _isLoading.value = false
+            _isSyncing.value = false
         }
     }
 
-    private fun loadBodyParts() {
+    private fun loadFromLocalLibrary() {
         viewModelScope.launch {
-            repository.getBodyParts().onSuccess { parts ->
-                _bodyParts.value = parts
-            }.onFailure {
-                _bodyParts.value = listOf("chest", "back", "shoulders", "upper arms",
-                    "upper legs", "lower legs", "waist", "cardio")
-            }
+            repository.getExercises().onSuccess { _exercises.value = it }
+            repository.getBodyParts().onSuccess { _bodyParts.value = it }
         }
-    }
-
-    fun loadExercises(bodyPart: String? = null, offset: Int = 0) {
-        loadExercisesFromApi(bodyPart, offset)
     }
 
     fun filterByBodyPart(bodyPart: String?) {
         _selectedBodyPart.value = bodyPart
-        if (bodyPart != null) {
-            // Filter local exercises immediately, then try API
-            _exercises.value = repository.getLocalExercises()
-                .filter { it.bodyPart.equals(bodyPart, ignoreCase = true) }
-                .ifEmpty { repository.getLocalExercises() }
-            loadExercisesFromApi(bodyPart)
-        } else {
-            _exercises.value = repository.getLocalExercises()
-            loadExercisesFromApi()
+        viewModelScope.launch {
+            repository.getExercises(bodyPart).onSuccess { _exercises.value = it }
         }
     }
 
@@ -121,11 +123,11 @@ class ExerciseViewModel @Inject constructor(
 
     fun search(query: String) {
         _searchQuery.value = query
-        if (query.length >= 3) {
-            viewModelScope.launch {
-                repository.searchExercises(query).onSuccess { results ->
-                    if (results.isNotEmpty()) _exercises.value = results
-                }
+        viewModelScope.launch {
+            if (query.isBlank()) {
+                repository.getExercises(_selectedBodyPart.value).onSuccess { _exercises.value = it }
+            } else {
+                repository.searchExercises(query).onSuccess { _exercises.value = it }
             }
         }
     }

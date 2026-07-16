@@ -183,22 +183,35 @@ interface FavoriteExerciseDao {
 
 // --- Cached Exercise DAO (Room-backed replacement for the old in-memory map) --
 
+// Roadmap: permanent local exercise library synced from Wger — see ExerciseRepository.
+// syncAllExercisesFromWger(). No longer a time-limited cache (hence no more "queries" table
+// keyed by request params): once synced, every read here is a plain offline Room query.
 @Dao
 interface CachedExerciseDao {
-    @Query("SELECT * FROM cached_exercise_queries WHERE queryKey = :key")
-    suspend fun getQuery(key: String): CachedExerciseQueryEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertQuery(query: CachedExerciseQueryEntity)
-
-    @Query("SELECT * FROM cached_exercises WHERE exerciseId IN (:ids)")
-    suspend fun getExercisesByIds(ids: List<String>): List<CachedExerciseEntity>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertExercises(exercises: List<CachedExerciseEntity>)
 
+    @Query("SELECT * FROM cached_exercises ORDER BY name ASC")
+    suspend fun getAll(): List<CachedExerciseEntity>
+
+    @Query("SELECT * FROM cached_exercises WHERE bodyPart = :bodyPart ORDER BY name ASC")
+    suspend fun getByBodyPart(bodyPart: String): List<CachedExerciseEntity>
+
+    @Query("""
+        SELECT * FROM cached_exercises
+        WHERE name LIKE '%' || :query || '%' OR target LIKE '%' || :query || '%'
+        ORDER BY name ASC
+    """)
+    suspend fun search(query: String): List<CachedExerciseEntity>
+
     @Query("SELECT * FROM cached_exercises WHERE exerciseId = :id")
     suspend fun getExerciseById(id: String): CachedExerciseEntity?
+
+    @Query("SELECT DISTINCT bodyPart FROM cached_exercises ORDER BY bodyPart ASC")
+    suspend fun getDistinctBodyParts(): List<String>
+
+    @Query("SELECT COUNT(*) FROM cached_exercises")
+    suspend fun count(): Int
 }
 
 // --- Analytics helpers -------------------------------------------------------

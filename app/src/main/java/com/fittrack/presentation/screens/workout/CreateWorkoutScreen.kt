@@ -26,7 +26,6 @@ import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.request.ImageRequest
-import com.fittrack.data.remote.exerciseGifUrl
 import com.fittrack.domain.model.ExerciseSet
 import com.fittrack.domain.model.WorkoutExercise
 import com.fittrack.presentation.components.BodyFigureWidget
@@ -147,7 +146,9 @@ fun ExerciseCard(
     // When provided, the caller drives it (ActiveWorkoutScreen — only one exercise expanded
     // at a time, auto-advancing as sets are completed).
     expanded: Boolean? = null,
-    onExpandedChange: ((Boolean) -> Unit)? = null
+    onExpandedChange: ((Boolean) -> Unit)? = null,
+    // Modo foco keeps the card always expanded — the chevron would be a no-op there.
+    showExpandToggle: Boolean = true
 ) {
     var internalExpanded by remember { mutableStateOf(true) }
     val isExpanded = expanded ?: internalExpanded
@@ -158,7 +159,7 @@ fun ExerciseCard(
     Card(colors = CardDefaults.cardColors(containerColor = SurfaceVar), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                val gifUrl = remember(workoutExercise.exerciseId) { exerciseGifUrl(workoutExercise.exerciseId) }
+                val gifUrl = workoutExercise.gifUrl
                 if (gifUrl.isNotBlank()) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
@@ -189,8 +190,10 @@ fun ExerciseCard(
                     }
                 }
                 Row {
-                    IconButton(onClick = toggleExpanded) {
-                        Icon(if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (showExpandToggle) {
+                        IconButton(onClick = toggleExpanded) {
+                            Icon(if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     IconButton(onClick = onRemoveExercise) { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) }
                 }

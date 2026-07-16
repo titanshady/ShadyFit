@@ -26,8 +26,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "EXERCISEDB_API_KEY", "\"${localProperties["EXERCISEDB_API_KEY"] ?: ""}\"")
-        buildConfigField("String", "EXERCISEDB_BASE_URL", "\"https://exercisedb.p.rapidapi.com/\"")
+        buildConfigField("String", "WGER_BASE_URL", "\"https://wger.de/api/v3/\"")
         buildConfigField("String", "OPENFOODFACTS_BASE_URL", "\"https://world.openfoodfacts.net/\"")
     }
 

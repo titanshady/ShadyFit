@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.fittrack.presentation.screens.workout
 
 import android.app.Activity
@@ -11,11 +13,16 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.WindowManager
 import androidx.compose.animation.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -29,8 +36,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.fittrack.domain.model.ExerciseSet
+import com.fittrack.domain.model.WorkoutExercise
 import com.fittrack.presentation.components.BodyFigureWidget
 import com.fittrack.presentation.theme.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +61,39 @@ fun ActiveWorkoutScreen(
     var showBodyFigure   by remember { mutableStateOf(false) }
     // Only the first exercise starts expanded; the rest are collapsed until their turn.
     var expandedExerciseIndex by remember { mutableIntStateOf(0) }
+
+    // Roadmap 1.1/1.2: modo foco — horizontal pager, one exercise at a time, with
+    // Próximo/Anterior navigation. Off by default; toggled from the top bar.
+    var focusMode by remember { mutableStateOf(false) }
+    val pagerState = rememberPagerState(pageCount = { exercises.size })
+    val coroutineScope = rememberCoroutineScope()
+
+    // Keep list-mode's "expanded" index and the pager's current page in sync, so
+    // switching between the two modes lands on the same exercise either way.
+    LaunchedEffect(focusMode) {
+        if (focusMode && expandedExerciseIndex >= 0 && expandedExerciseIndex < exercises.size) {
+            pagerState.scrollToPage(expandedExerciseIndex)
+        }
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }.collect { page -> expandedExerciseIndex = page }
+    }
+
+    // Shared by both list mode and modo foco: toggles the set and, if it was the last
+    // set of the exercise, auto-advances to the next one (expanding it / paging to it).
+    fun handleToggleSet(index: Int, setIdx: Int) {
+        val ex = exercises[index]
+        val wasCompleted = ex.sets[setIdx].completed
+        val isLastSet = setIdx == ex.sets.size - 1
+        vm.toggleSetCompleted(index, setIdx)
+        if (!wasCompleted && isLastSet) {
+            val nextIndex = if (index + 1 < exercises.size) index + 1 else -1
+            expandedExerciseIndex = nextIndex
+            if (nextIndex >= 0) {
+                coroutineScope.launch { pagerState.animateScrollToPage(nextIndex) }
+            }
+        }
+    }
 
     // Load template and start timer when screen opens
     LaunchedEffect(workoutId) {
@@ -150,6 +193,15 @@ fun ActiveWorkoutScreen(
                             )
                         }
                         Spacer(Modifier.width(8.dp))
+                        // Roadmap 1.1/1.2: toggle between list view and modo foco
+                        IconButton(onClick = { focusMode = !focusMode }) {
+                            Icon(
+                                if (focusMode) Icons.Filled.ViewList else Icons.Filled.CenterFocusStrong,
+                                if (focusMode) "Ver lista" else "Modo foco",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
                         // Roadmap 1.5: toggle for the optional rest-end sound
                         IconButton(onClick = { vm.toggleRestSound() }) {
                             Icon(
@@ -174,6 +226,25 @@ fun ActiveWorkoutScreen(
             }
         }
     ) { padding ->
+        if (focusMode) {
+            FocusModeContent(
+                modifier         = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+                exercises        = exercises,
+                pagerState       = pagerState,
+                coroutineScope   = coroutineScope,
+                restCountdown    = restCountdown,
+                onSkipRest       = { vm.skipRest() },
+                lastSessions     = lastSessions,
+                onAddSet         = { idx -> vm.addSet(idx) },
+                onRemoveSet      = { idx, setIdx -> vm.removeSet(idx, setIdx) },
+                onUpdateSet      = { idx, setIdx, reps, weight -> vm.updateSet(idx, setIdx, reps, weight) },
+                onToggleSet      = { idx, setIdx -> handleToggleSet(idx, setIdx) },
+                onRemoveExercise = { idx -> vm.removeExercise(idx) },
+                onUpdateNotes    = { idx, notes -> vm.updateExerciseNotes(idx, notes) },
+                onUpdateRpe      = { idx, setIdx, rpe -> vm.updateSetRpe(idx, setIdx, rpe) }
+            )
+            return@Scaffold
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -253,14 +324,7 @@ fun ActiveWorkoutScreen(
                     onAddSet         = { vm.addSet(index) },
                     onRemoveSet      = { setIdx -> vm.removeSet(index, setIdx) },
                     onUpdateSet      = { setIdx, reps, weight -> vm.updateSet(index, setIdx, reps, weight) },
-                    onToggleSet      = { setIdx ->
-                        val wasCompleted = workoutExercise.sets[setIdx].completed
-                        val isLastSet = setIdx == workoutExercise.sets.size - 1
-                        vm.toggleSetCompleted(index, setIdx)
-                        if (!wasCompleted && isLastSet) {
-                            expandedExerciseIndex = if (index + 1 < exercises.size) index + 1 else -1
-                        }
-                    },
+                    onToggleSet      = { setIdx -> handleToggleSet(index, setIdx) },
                     onRemoveExercise = { vm.removeExercise(index) },
                     lastSession      = lastSessions[workoutExercise.exerciseId],
                     onUpdateNotes    = { notes -> vm.updateExerciseNotes(index, notes) },
@@ -284,6 +348,113 @@ fun ActiveWorkoutScreen(
                     Text("Terminar Treino", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
                 Spacer(Modifier.height(80.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FocusModeContent(
+    modifier: Modifier,
+    exercises: List<WorkoutExercise>,
+    pagerState: androidx.compose.foundation.pager.PagerState,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
+    restCountdown: Int,
+    onSkipRest: () -> Unit,
+    lastSessions: Map<String, List<ExerciseSet>>,
+    onAddSet: (Int) -> Unit,
+    onRemoveSet: (Int, Int) -> Unit,
+    onUpdateSet: (Int, Int, Int, Float) -> Unit,
+    onToggleSet: (Int, Int) -> Unit,
+    onRemoveExercise: (Int) -> Unit,
+    onUpdateNotes: (Int, String) -> Unit,
+    onUpdateRpe: (Int, Int, Int?) -> Unit
+) {
+    if (exercises.isEmpty()) {
+        Box(modifier, contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Primary) }
+        return
+    }
+
+    Column(modifier) {
+        Spacer(Modifier.height(8.dp))
+
+        AnimatedVisibility(
+            visible = restCountdown > 0,
+            enter   = slideInVertically() + fadeIn(),
+            exit    = slideOutVertically() + fadeOut()
+        ) {
+            Column {
+                RestCountdownBanner(seconds = restCountdown, onSkip = onSkipRest)
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+
+        // "Exercício X de N" indicator — the whole point of modo foco is knowing exactly
+        // where you are in the workout without scrolling through everything else.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Exercício ${pagerState.currentPage + 1} de ${exercises.size}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Primary
+            )
+            val completedInPage = exercises.getOrNull(pagerState.currentPage)?.sets?.count { it.completed } ?: 0
+            val totalInPage = exercises.getOrNull(pagerState.currentPage)?.sets?.size ?: 0
+            Text("$completedInPage / $totalInPage séries", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(8.dp))
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) { page ->
+            val workoutExercise = exercises[page]
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                ExerciseCard(
+                    workoutExercise  = workoutExercise,
+                    index            = page,
+                    showCompleted    = true,
+                    onAddSet         = { onAddSet(page) },
+                    onRemoveSet      = { setIdx -> onRemoveSet(page, setIdx) },
+                    onUpdateSet      = { setIdx, reps, weight -> onUpdateSet(page, setIdx, reps, weight) },
+                    onToggleSet      = { setIdx -> onToggleSet(page, setIdx) },
+                    onRemoveExercise = { onRemoveExercise(page) },
+                    lastSession      = lastSessions[workoutExercise.exerciseId],
+                    onUpdateNotes    = { notes -> onUpdateNotes(page, notes) },
+                    onUpdateRpe      = { setIdx, rpe -> onUpdateRpe(page, setIdx, rpe) },
+                    gifSize          = 140.dp,
+                    expanded         = true,
+                    onExpandedChange = null,
+                    showExpandToggle = false
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Anterior/Próximo navigation (roadmap 1.2)
+        Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(
+                onClick  = { coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } },
+                enabled  = pagerState.currentPage > 0,
+                modifier = Modifier.weight(1f).height(48.dp)
+            ) {
+                Icon(Icons.Filled.ArrowBack, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Anterior")
+            }
+            Button(
+                onClick  = { coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } },
+                enabled  = pagerState.currentPage < exercises.size - 1,
+                modifier = Modifier.weight(1f).height(48.dp),
+                colors   = ButtonDefaults.buttonColors(containerColor = Primary, contentColor = OnPrimary)
+            ) {
+                Text("Próximo")
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Filled.ArrowForward, null, modifier = Modifier.size(18.dp))
             }
         }
     }

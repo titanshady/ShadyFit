@@ -21,6 +21,7 @@ data class WorkoutExercise(
     val exerciseName: String,
     val bodyPart: String,
     val targetMuscle: String,
+    val gifUrl: String = "",
     val order: Int = 0,
     val sets: List<ExerciseSet> = emptyList(),
     val notes: String = ""

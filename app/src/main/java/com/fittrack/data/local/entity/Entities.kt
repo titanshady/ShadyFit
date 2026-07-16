@@ -138,9 +138,10 @@ data class FavoriteExerciseEntity(
     val addedAt: LocalDateTime
 )
 
-// --- Exercise Cache (Room-backed, replaces the old in-memory mutableMapOf) -----
-// See roadmap item 7.5: the free ExerciseDB plan allows only 10 requests/day,
-// so the cache must survive process death — a plain in-memory map does not.
+// --- Exercise library (Room-backed, permanent local copy synced from Wger) ----
+// Roadmap: replaces the old time-limited cache — see ExerciseRepository for the sync flow.
+// Same shape as before so favorites/history that reference an exerciseId keep working;
+// only the meaning changed (gifUrl is now a local "file://" path, not a remote URL).
 
 @Entity(tableName = "cached_exercises")
 data class CachedExerciseEntity(
@@ -152,15 +153,6 @@ data class CachedExerciseEntity(
     val secondaryMuscles: List<String> = emptyList(),
     val gifUrl: String = "",
     val instructions: List<String> = emptyList(),
-    val cachedAt: LocalDateTime
-)
-
-/** Remembers which exercise ids were returned for a given list query (bodyPart+offset or search),
- *  so we can reconstruct the exact same page from [CachedExerciseEntity] without hitting the API. */
-@Entity(tableName = "cached_exercise_queries")
-data class CachedExerciseQueryEntity(
-    @PrimaryKey val queryKey: String,
-    val exerciseIds: List<String>,
     val cachedAt: LocalDateTime
 )
 

@@ -6,8 +6,8 @@ import com.fittrack.BuildConfig
 import com.fittrack.data.local.ALL_MIGRATIONS
 import com.fittrack.data.local.FitTrackDatabase
 import com.fittrack.data.local.dao.*
-import com.fittrack.data.remote.api.ExerciseApiService
 import com.fittrack.data.remote.api.FoodApiService
+import com.fittrack.data.remote.api.WgerApiService
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -65,10 +65,10 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    @Named("exercise")
-    fun provideExerciseRetrofit(okHttpClient: OkHttpClient): Retrofit =
+    @Named("wger")
+    fun provideWgerRetrofit(okHttpClient: OkHttpClient): Retrofit =
         Retrofit.Builder()
-            .baseUrl(BuildConfig.EXERCISEDB_BASE_URL)
+            .baseUrl(BuildConfig.WGER_BASE_URL)
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -85,8 +85,8 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideExerciseApiService(@Named("exercise") retrofit: Retrofit): ExerciseApiService =
-        retrofit.create(ExerciseApiService::class.java)
+    fun provideWgerApiService(@Named("wger") retrofit: Retrofit): WgerApiService =
+        retrofit.create(WgerApiService::class.java)
 
     @Provides
     @Singleton
